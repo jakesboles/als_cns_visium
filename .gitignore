@@ -2,3 +2,4 @@ results/*
 plots/*
 data/*
 envs/*
+__pycache__/
