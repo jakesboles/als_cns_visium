@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import glob
 import math
@@ -9,6 +10,12 @@ from shapely.geometry import Polygon
 from shapely.ops import unary_union
 from tifffile import imread
 import matplotlib.pyplot as plt
+
+# Print output is redirected to a SLURM log file rather than a terminal, so
+# it's block-buffered by default and won't show up until the buffer fills or
+# the job ends -- this forces line buffering so `tail -f` on the log reflects
+# progress in real time.
+sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/gpfs/projects/b1169/boles/als_cns_visium")
 
@@ -48,6 +55,12 @@ OVERLAP_THRESHOLD = 0.5
 # size sane when a category's figure holds ~20+ full-res image crops at once.
 DOWNSAMPLE = 5
 
+# Saved as PNG rather than PDF: a PDF keeps every spot/ROI as a separate
+# vector path, which balloons file size fast once a figure has dozens of
+# panels each with thousands of spots. A rasterized PNG at this DPI stays
+# small regardless of spot count.
+PLOT_DPI = 150
+
 def convert_to_polygon(geom):
 
   # Skip if not at least 3 points
@@ -72,6 +85,8 @@ categories = sorted(
   if os.path.isdir(os.path.join(annotations_dir, d))
 )
 
+print(f"Found {len(categories)} annotation categories: {', '.join(categories)}")
+
 # Each sample's spot GDF is read at most once no matter how many categories
 # reference it (e.g. AN67-3 shows up in mcx_meninges, mcx_ptdp, and mcx_wm).
 spot_gdf_cache = {}
@@ -95,11 +110,13 @@ for category in categories:
   category_dir = f"{annotations_dir}{category}/"
   geojson_files = sorted(glob.glob(f"{category_dir}*.geojson"))
 
+  print(f"== {category} ({len(geojson_files)} samples) ==")
+
   # Collected here, then plotted together into one combined figure per
   # category once the loop below is done.
   plot_entries = []
 
-  for geojson_file in geojson_files:
+  for j, geojson_file in enumerate(geojson_files):
 
     # Halo filenames aren't consistently "<sample>_Scan1..." -- some are
     # "_Scan2" -- so the sample id is recovered by splitting on the scan
@@ -108,10 +125,10 @@ for category in categories:
     sample = re.split(r"_Scan[0-9]+", filename)[0]
 
     if sample in exclude:
-      print(f"Skipping {sample} ({category}) -- excluded from cohort")
+      print(f"  [{j + 1}/{len(geojson_files)}] Skipping {sample} -- excluded from cohort")
       continue
 
-    print(f"Processing {category}: {sample}")
+    print(f"  [{j + 1}/{len(geojson_files)}] {sample}")
 
     spot_gdf = load_spot_gdf(sample)
     if spot_gdf is None:
@@ -122,7 +139,7 @@ for category in categories:
 
     # Check initial data type
     if not (rois.geometry.type == 'LineString').all():
-      print(f"{sample} ({category}): not all annotations are LineString before transformation, skipping")
+      print(f"  [{j + 1}/{len(geojson_files)}] {sample}: not all annotations are LineString before transformation, skipping")
       continue
 
     # Remove CRS
@@ -149,7 +166,7 @@ for category in categories:
     rois = rois[rois.geometry.notnull() & ~rois.geometry.is_empty]
 
     if len(rois) == 0:
-      print(f"{sample} ({category}): no valid polygons after conversion, skipping")
+      print(f"  [{j + 1}/{len(geojson_files)}] {sample}: no valid polygons after conversion, skipping")
       continue
 
     # Save ROI GDF as GeoParquet (see 03a_make_spot_gdfs.py for why)
@@ -174,7 +191,10 @@ for category in categories:
   # Combined diagnostic figure for this category: one panel per sample
   # annotated for it, instead of one file per sample to click through.
   if len(plot_entries) == 0:
+    print(f"  No samples produced valid ROIs for {category}, skipping its plot")
     continue
+
+  print(f"  Saving combined plot for {category} ({len(plot_entries)} panels)")
 
   ncols = math.ceil(math.sqrt(len(plot_entries)))
   nrows = math.ceil(len(plot_entries) / ncols)
@@ -213,10 +233,12 @@ for category in categories:
     ax.axis("off")
 
   fig.suptitle(category)
-  fig.savefig(f"{results_dir}{category}.pdf", format="pdf", bbox_inches="tight")
+  fig.savefig(f"{results_dir}{category}.png", format="png", dpi=PLOT_DPI, bbox_inches="tight")
   plt.close(fig)
   del fig
   gc.collect()
+
+print(f"Saving combined results tables for {len(sample_results)} samples")
 
 # Save one combined results table per sample (one boolean column per
 # category that sample was annotated for -- a category a sample was never
@@ -225,3 +247,5 @@ for sample, df in sample_results.items():
   sample_dir = f"{data_dir}{sample}/"
   os.makedirs(f"{sample_dir}results", exist_ok=True)
   df.to_csv(f"{sample_dir}results/in_roi.csv")
+
+print("Done")
