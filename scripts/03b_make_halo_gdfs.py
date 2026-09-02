@@ -1,34 +1,63 @@
 import os
+import re
+import glob
+import math
+import gc
 import pandas as pd
 import geopandas as gpd
-from shapely.geometry import Polygon, Point, MultiPolygon
-import numpy as np
-from tifffile import imread, imwrite
-import matplotlib.pyplot as plt
-from shapely.geometry import box
-import math 
-import matplotlib.colors as mcolors
-import gc
+from shapely.geometry import Polygon
 from shapely.ops import unary_union
+from tifffile import imread
+import matplotlib.pyplot as plt
 
-output_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/03b_make_halo_gdfs/"
+os.chdir("/gpfs/projects/b1169/boles/als_cns_visium")
 
-# Define path to halo output 
-roi_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/halo_annotations/mcx_meninges"
+# 03a_make_spot_gdfs.py's output (one GDF of ST spots per sample) -- read
+# from, never written to, here.
+spot_gdf_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/03a_make_spot_gdfs/"
 
-# Define path to images 
+# Halo annotations, organized as one subfolder per annotated region/feature
+# (e.g. mcx_meninges, sc_gm), each containing one geoJSON per annotated
+# sample. Every category under this directory is processed in one run.
+annotations_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/halo_annotations/"
+
+data_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/03b_make_halo_gdfs/"
+results_dir = "/gpfs/projects/b1169/boles/als_cns_visium/results/03b_make_halo_gdfs/"
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(results_dir, exist_ok=True)
+
+# Define path to images
 img_dir = "/gpfs/projects/b1042/Gate_Lab/boles/als_motor_circuit_visium/images_for_alignment/"
 
+# Samples excluded from the cohort in 01_obj_creation.R. Checked again here
+# so a stray annotation for an excluded sample (as happened before with
+# AN68-1) never silently gets processed.
+exclude = ["137-1", "137-2", "AN16-1", "AN68-1", "AN68-2", "AN69-7", "AN69-8"]
+
+# A spot is called "in" a region if more than this fraction of its area is
+# covered by that region's annotated polygon(s), rather than requiring the
+# whole spot to fall inside it. Spots straddling a region boundary are left
+# unclassified for that region either way; any tissue not covered by a
+# majority in any annotated category is meant to be picked up downstream as
+# whichever region wasn't explicitly annotated (e.g. gray matter, once
+# meninges/white matter are accounted for).
+OVERLAP_THRESHOLD = 0.5
+
+# Each combined per-category figure is downsampled by this factor before
+# plotting, same rationale as 03a_make_spot_gdfs.py -- keeps memory and file
+# size sane when a category's figure holds ~20+ full-res image crops at once.
+DOWNSAMPLE = 5
+
 def convert_to_polygon(geom):
-  
+
   # Skip if not at least 3 points
   unique_coords = list(dict.fromkeys(geom.coords))
-  if len(unique_coords) < 3: 
+  if len(unique_coords) < 3:
     return None
 
-  # Convert to Polygon 
+  # Convert to Polygon
   poly = Polygon(geom)
-    
+
   # Fix invalid polygons
   if not poly.is_valid:
     poly = poly.buffer(0)
@@ -37,98 +66,162 @@ def convert_to_polygon(geom):
     return None
   else:
     return poly
-  
-sample_ids = [
-    "JSB146-1", "JSB146-8", "AN67-3", "AN67-7", "AN68-1"
-]
 
-for sample in sample_ids: 
-  
-  # Define output folder 
-  sample_dir = f"{output_dir}{sample}/"
-    
-  # Load ST spot GDF 
-  spot_gdf = gpd.read_file(f"{sample_dir}gdf_spots/gdf.shp")
-    
-  roi_name = sample
-        
-  roi_file = f"{roi_dir}{roi_name}_Scan1.unmixed.geojson"
-    
-  # Load ROIs
-  rois = gpd.read_file(roi_file)
+categories = sorted(
+  d for d in os.listdir(annotations_dir)
+  if os.path.isdir(os.path.join(annotations_dir, d))
+)
 
-  # Check initial data type 
-  if not (rois.geometry.type == 'LineString').all(): 
-    print("Not all LineString before transformation")
+# Each sample's spot GDF is read at most once no matter how many categories
+# reference it (e.g. AN67-3 shows up in mcx_meninges, mcx_ptdp, and mcx_wm).
+spot_gdf_cache = {}
+
+def load_spot_gdf(sample):
+  if sample not in spot_gdf_cache:
+    path = f"{spot_gdf_dir}{sample}/gdf_spots/gdf.parquet"
+    if not os.path.exists(path):
+      print(f"No spot GDF found for {sample} at {path} -- has 03a_make_spot_gdfs.py been run for it?")
+      spot_gdf_cache[sample] = None
+    else:
+      spot_gdf_cache[sample] = gpd.read_parquet(path)
+  return spot_gdf_cache[sample]
+
+# One combined results table per sample, one boolean column per annotated
+# category, built up as categories are processed below.
+sample_results = {}
+
+for category in categories:
+
+  category_dir = f"{annotations_dir}{category}/"
+  geojson_files = sorted(glob.glob(f"{category_dir}*.geojson"))
+
+  # Collected here, then plotted together into one combined figure per
+  # category once the loop below is done.
+  plot_entries = []
+
+  for geojson_file in geojson_files:
+
+    # Halo filenames aren't consistently "<sample>_Scan1..." -- some are
+    # "_Scan2" -- so the sample id is recovered by splitting on the scan
+    # number rather than assuming a fixed suffix.
+    filename = os.path.basename(geojson_file)
+    sample = re.split(r"_Scan[0-9]+", filename)[0]
+
+    if sample in exclude:
+      print(f"Skipping {sample} ({category}) -- excluded from cohort")
+      continue
+
+    print(f"Processing {category}: {sample}")
+
+    spot_gdf = load_spot_gdf(sample)
+    if spot_gdf is None:
+      continue
+
+    # Load ROIs
+    rois = gpd.read_file(geojson_file)
+
+    # Check initial data type
+    if not (rois.geometry.type == 'LineString').all():
+      print(f"{sample} ({category}): not all annotations are LineString before transformation, skipping")
+      continue
+
+    # Remove CRS
+    rois = rois.set_crs(None, allow_override=True)
+
+    # Halo's export carries bookkeeping columns alongside the geometry
+    # (object type, lock state, a classification label), and the exact set
+    # of columns isn't guaranteed to be the same across annotation types --
+    # e.g. an AI-model-derived category like mcx_ptdp need not match a
+    # manually-drawn region like mcx_meninges. Since every polygon in a
+    # given category's file is unioned into one region below regardless of
+    # any per-polygon label, none of those columns are actually needed, so
+    # they're dropped unconditionally instead of by name. NOTE: this assumes
+    # every polygon in one file belongs to the single class implied by its
+    # category folder -- if any category's geoJSON actually mixes multiple
+    # classifications that should be treated differently, filter on
+    # `classification` before this line rather than dropping it.
+    rois = rois[["geometry"]]
+
+    # Convert ROIs to Polygons
+    rois["geometry"] = rois.geometry.apply(convert_to_polygon)
+
+    # Remove empty/invalid geometries
+    rois = rois[rois.geometry.notnull() & ~rois.geometry.is_empty]
+
+    if len(rois) == 0:
+      print(f"{sample} ({category}): no valid polygons after conversion, skipping")
+      continue
+
+    # Save ROI GDF as GeoParquet (see 03a_make_spot_gdfs.py for why)
+    sample_dir = f"{data_dir}{sample}/"
+    os.makedirs(f"{sample_dir}gdf_halo", exist_ok=True)
+    rois.to_parquet(f"{sample_dir}gdf_halo/{category}.parquet")
+
+    # Identify ST spots with >OVERLAP_THRESHOLD of their area covered by
+    # this category's (dissolved) annotated region.
+    roi_union = unary_union(rois.geometry)
+    spot_area = spot_gdf.geometry.area
+    overlap_area = spot_gdf.geometry.intersection(roi_union).area
+    in_roi = (overlap_area / spot_area) > OVERLAP_THRESHOLD
+
+    if sample not in sample_results:
+      sample_results[sample] = pd.DataFrame(index=spot_gdf["barcode"].values)
+      sample_results[sample].index.name = "barcode"
+    sample_results[sample][f"in_{category}"] = in_roi.values
+
+    plot_entries.append((sample, spot_gdf, rois, in_roi))
+
+  # Combined diagnostic figure for this category: one panel per sample
+  # annotated for it, instead of one file per sample to click through.
+  if len(plot_entries) == 0:
     continue
 
-  # Remove CRS 
-  rois.geometry.crs = None
-    
-  # Delete unused columns 
-  del rois['object_type']
-  del rois['classification']
-  del rois['isLocked']
-    
-  # Convert ROIs to Polygons 
-  rois['geometry'] = rois.geometry.apply(convert_to_polygon)
+  ncols = math.ceil(math.sqrt(len(plot_entries)))
+  nrows = math.ceil(len(plot_entries) / ncols)
+  fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows), squeeze=False)
+  axes = axes.flatten()
 
-  # Remove empty geometries 
-  rois = rois[~rois.geometry.is_empty]
-  rois = rois[rois.geometry.notnull()]
-        
-  # Save ROI GDF
-  os.makedirs(f"{sample_dir}gdf_halo", exist_ok = True)
-  rois.to_file(f"{sample_dir}gdf_halo/gdf.shp")
-  
-  # Identify ST spots covered by gray matter ROIs 
-  spot_gdf_temp = spot_gdf[['geometry']].copy()
-  rois_temp = rois[['geometry']].copy()
-  joined = gpd.sjoin(spot_gdf_temp, rois_temp, how="inner", predicate="within")
-  spot_gdf['in_roi'] = False
-  spot_gdf.loc[joined.index, 'in_roi'] = True
+  for ax, (sample, spot_gdf, rois, in_roi) in zip(axes, plot_entries):
 
-  # Save meta data
-  os.makedirs(f"{sample_dir}results", exist_ok = True)
-  spot_gdf[['barcode', 'in_roi']].to_csv(f"{sample_dir}results/in_roi_mng.csv")
-  
-  # Load image    
-  img = imread(f"{img_dir}{sample}.tiff")
-    
-  # Calculate bounds of Space Ranger window
-  minx, miny, maxx, maxy = spot_gdf.geometry.total_bounds
+    img = imread(f"{img_dir}{sample}.tiff")
 
-  # Define x, y boundaries ~100 pixels beyond bounds of GDF
-  minx = max(0, int(minx)-100)
-  maxx = min(img.shape[1], int(maxx)+100)   
-  miny = max(0, int(miny)-100)
-  maxy = min(img.shape[0], int(maxy)+100) 
+    minx, miny, maxx, maxy = spot_gdf.geometry.total_bounds
+    minx = max(0, int(minx) - 100)
+    maxx = min(img.shape[1], int(maxx) + 100)
+    miny = max(0, int(miny) - 100)
+    maxy = min(img.shape[0], int(maxy) + 100)
 
-  # Crop image (x pixels: minx to maxx-1; y pixels: miny to maxy-1 pixel)
-  img_window = img[miny:maxy, minx:maxx]
+    img_window = img[miny:maxy, minx:maxx]
 
-  # Initialize plot
-  fig, ax = plt.subplots()
+    ax.imshow(img_window[::DOWNSAMPLE, ::DOWNSAMPLE], extent=[minx-0.5, maxx-0.5, maxy-0.5, miny-0.5])
 
-  # Boundaries of min pixels: miny-0.5 to miny+0.5; minx-0.5 to minx+0.5
-  # Boundaries of max pixels: maxy-1.5 to maxy-0.5; maxx-1.5 to maxx-0.5
-  ax.imshow(img_window, extent=[minx-0.5, maxx-0.5, maxy-0.5, miny-0.5]) # left, right, bottom, top
-  
-  # Plot ROIs
-  rois.plot(ax=ax, facecolor="#FFDBBB", clip_on = True)
+    # Plot ROIs
+    rois.plot(ax=ax, facecolor="#FFDBBB", alpha=0.4)
 
-  # Plot ST spots in gray matter
-  spot_gdf[spot_gdf["in_roi"]].plot(ax=ax, facecolor="#003151")
+    # Plot ST spots in this category's region
+    spot_gdf[in_roi].plot(ax=ax, facecolor="#003151", alpha=0.4)
 
-  # Crop axes 
-  ax.set_xlim(minx, maxx)
-  ax.set_ylim(miny, maxy)
-  ax.axis("off")
+    ax.set_xlim(minx, maxx)
+    ax.set_ylim(miny, maxy)
+    ax.axis("off")
+    ax.set_title(sample, fontsize=8)
 
-  # Save plot
-  fig.savefig(f"{sample_dir}results/plt_in_roi_mng.pdf", format = "pdf", bbox_inches = "tight")
-    
-  # Free memory
+    del img, img_window
+    gc.collect()
+
+  for ax in axes[len(plot_entries):]:
+    ax.axis("off")
+
+  fig.suptitle(category)
+  fig.savefig(f"{results_dir}{category}.pdf", format="pdf", bbox_inches="tight")
   plt.close(fig)
-  del fig, spot_gdf, img
+  del fig
   gc.collect()
+
+# Save one combined results table per sample (one boolean column per
+# category that sample was annotated for -- a category a sample was never
+# annotated for is simply absent as a column, not filled with a false/NaN).
+for sample, df in sample_results.items():
+  sample_dir = f"{data_dir}{sample}/"
+  os.makedirs(f"{sample_dir}results", exist_ok=True)
+  df.to_csv(f"{sample_dir}results/in_roi.csv")
