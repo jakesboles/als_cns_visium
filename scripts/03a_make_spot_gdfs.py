@@ -1,4 +1,5 @@
 import os
+import sys
 import math
 import gc
 import pandas as pd
@@ -6,6 +7,12 @@ import geopandas as gpd
 from shapely.geometry import Point
 from tifffile import imread
 import matplotlib.pyplot as plt
+
+# Print output is redirected to a SLURM log file rather than a terminal, so
+# it's block-buffered by default and won't show up until the buffer fills or
+# the job ends -- this forces line buffering so `tail -f` on the log reflects
+# progress in real time.
+sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/gpfs/projects/b1169/boles/als_cns_visium")
 
@@ -38,12 +45,16 @@ radius = 55
 # from the source tiff if that's ever needed.
 DOWNSAMPLE = 5
 
+print(f"Processing {len(sample_ids)} samples")
+
 ncols = math.ceil(math.sqrt(len(sample_ids)))
 nrows = math.ceil(len(sample_ids) / ncols)
 fig, axes = plt.subplots(nrows, ncols, figsize=(3 * ncols, 3 * nrows))
 axes = axes.flatten()
 
 for i, sample in enumerate(sample_ids):
+
+  print(f"[{i + 1}/{len(sample_ids)}] {sample}")
 
   # Define output folder
   sample_dir = f"{data_dir}{sample}/"
@@ -108,6 +119,9 @@ for i, sample in enumerate(sample_ids):
 for ax in axes[len(sample_ids):]:
   ax.axis("off")
 
+print("Saving combined QC figure")
 fig.suptitle("ST spots")
 fig.savefig(f"{results_dir}ST_spots.pdf", format = "pdf", bbox_inches = "tight")
 plt.close(fig)
+
+print("Done")
