@@ -1,6 +1,7 @@
 library(tidyverse)
 library(Seurat)
 library(scCustomize)
+library(BPCells)
 
 setwd("/projects/b1169/boles/als_motor_circuit_visium/")
 
@@ -12,7 +13,14 @@ dir.create(data_dir,
 dir.create(results_dir,
            F, T)
 
-obj <- readRDS("data/01_obj_creation/cns_obj.rds")
+counts <- open_matrix_dir("data/01_obj_creation/bpcells_cns")
+meta <- readRDS("data/01_obj_creation/cns_metadata.rds")
+images <- readRDS("data/01_obj_creation/cns_images.rds")
+
+obj <- CreateSeuratObject(counts = counts,
+                          meta.data = meta,
+                          assay = "Spatial")
+obj@images <- images
 
 obj <- Add_Mito_Ribo(obj,
                      species = "Hs")
@@ -198,8 +206,23 @@ obj <- AddMetaData(obj,
 filtered_obj <- subset(obj,
                        discard == "keep")
 
-saveRDS(filtered_obj,
-        file = paste0(data_dir, "filtered_cns_obj.rds"))
+message("Saving filtered counts matrix as BPCells on-disk matrix")
+counts_out <- convert_matrix_type(filtered_obj[["Spatial"]]$counts, type = "uint32_t")
+write_matrix_dir(mat = counts_out,
+                 dir = paste0(data_dir, "bpcells_cns"))
+
+message("Saving filtered metadata and images as RDS")
+saveRDS(filtered_obj@meta.data,
+        file = paste0(data_dir, "cns_metadata.rds"))
+saveRDS(filtered_obj@images,
+        file = paste0(data_dir, "cns_images.rds"))
+
+# Downstream scripts should reconstruct the object from these on-disk pieces:
+#   counts <- open_matrix_dir(paste0(data_dir, "bpcells_cns"))
+#   meta <- readRDS(paste0(data_dir, "cns_metadata.rds"))
+#   images <- readRDS(paste0(data_dir, "cns_images.rds"))
+#   obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "Spatial")
+#   obj@images <- images
 
 # 
 # SpatialFeaturePlot(obj,
