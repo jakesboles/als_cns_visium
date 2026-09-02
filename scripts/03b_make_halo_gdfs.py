@@ -55,6 +55,12 @@ OVERLAP_THRESHOLD = 0.5
 # size sane when a category's figure holds ~20+ full-res image crops at once.
 DOWNSAMPLE = 5
 
+# Saved as PNG rather than PDF: a PDF keeps every spot/ROI as a separate
+# vector path, which balloons file size fast once a figure has dozens of
+# panels each with thousands of spots. A rasterized PNG at this DPI stays
+# small regardless of spot count.
+PLOT_DPI = 150
+
 def convert_to_polygon(geom):
 
   # Skip if not at least 3 points
@@ -227,7 +233,7 @@ for category in categories:
     ax.axis("off")
 
   fig.suptitle(category)
-  fig.savefig(f"{results_dir}{category}.pdf", format="pdf", bbox_inches="tight")
+  fig.savefig(f"{results_dir}{category}.png", format="png", dpi=PLOT_DPI, bbox_inches="tight")
   plt.close(fig)
   del fig
   gc.collect()

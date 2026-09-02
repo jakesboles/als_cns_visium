@@ -45,6 +45,12 @@ radius = 55
 # from the source tiff if that's ever needed.
 DOWNSAMPLE = 5
 
+# Saved as PNG rather than PDF: a PDF keeps every spot as a separate vector
+# path, which balloons file size fast once a figure has dozens of panels
+# each with thousands of spots. A rasterized PNG at this DPI stays small
+# regardless of spot count.
+PLOT_DPI = 150
+
 print(f"Processing {len(sample_ids)} samples")
 
 ncols = math.ceil(math.sqrt(len(sample_ids)))
@@ -121,7 +127,7 @@ for ax in axes[len(sample_ids):]:
 
 print("Saving combined QC figure")
 fig.suptitle("ST spots")
-fig.savefig(f"{results_dir}ST_spots.pdf", format = "pdf", bbox_inches = "tight")
+fig.savefig(f"{results_dir}ST_spots.png", format = "png", dpi = PLOT_DPI, bbox_inches = "tight")
 plt.close(fig)
 
 print("Done")
