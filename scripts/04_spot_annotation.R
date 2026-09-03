@@ -6,6 +6,11 @@ suppressMessages({
 
 setwd("/projects/b1169/boles/als_cns_visium")
 
+results_dir <- "results/04_spot_annotation/"
+dir.create(results_dir,
+           showWarnings = F,
+           recursive = T)
+
 # Get meta data from 02 ---------------------------------------------------
 
 meta <- readRDS("data/02_qc/cns_metadata.rds")
@@ -20,7 +25,7 @@ key <- read_xlsx("tab_data/master.xlsx",
 key <- key %>%
   dplyr::select(c(code, sample, tissue)) %>% 
   mutate(batch = str_split_i(code, "-", i = 1)) %>%
-  mutate(code = if_else(str_detect(code, "AN"), code, paste0("JSB", code)))
+  mutate(code = if_else(str_detect(code, "AN|JSB"), code, paste0("JSB", code)))
 
 demo <- read.csv("tab_data/target_als_demographics_compiled.csv")
 
@@ -56,6 +61,62 @@ gdfs1$barcode <- paste0("_", gdfs1$barcode)
 # check that barcodes match
 table(meta$barcode %in% gdfs1$barcode) # all good
 
+gdfs1 <- gdfs1 %>%
+  mutate(mcx_region = case_when(in_mcx_wm == "True" ~ "WM",
+                                in_mcx_meninges == "True" ~ "Meninges",
+                                in_mcx_wm == "True" & in_mcx_meninges == "True" ~ "Flag",
+                                in_mcx_wm == "False" & 
+                                  (in_mcx_meninges == "False" | is.na(in_mcx_meninges)) ~ "GM"),
+         sc_region = case_when(in_sc_gm == "True" ~ "GM",
+                               in_sc_meninges == "True" ~ "Meninges",
+                               in_sc_nerve_bundles == "True" ~ "Nerve bundle",
+                               in_sc_gm == "False" & 
+                                 (in_sc_meninges == "False" | is.na(in_sc_meninges)) & 
+                                 (in_sc_nerve_bundles == "False" | is.na(in_sc_nerve_bundles)) ~ "WM",
+                               (in_sc_gm == "True" & in_sc_meninges == "True") | 
+                                 (in_sc_gm == "True" & in_sc_nerve_bundles == "True") | 
+                                 (in_sc_meninges == "True" & in_sc_nerve_bundles == "True") ~ "Flag"))
+
+# table(is.na(gdfs1$mcx_region))
+
+gdfs1 <- gdfs1 %>%
+  mutate(region = coalesce(mcx_region, sc_region)) %>% 
+  dplyr::select(c(barcode, region))
+
+table(is.na(gdfs1$region))
+
+meta <- meta %>% 
+  left_join(gdfs1, 
+            by = "barcode")
+
+samples <- unique(meta$sample)
+
+for (i in samples){
+  
+  n <- meta %>% 
+    filter(sample == i) %>% 
+    pull(tissue) %>%
+    unique() %>% 
+    length()
+  
+  p <- meta %>% 
+    filter(sample == i) %>%
+    ggplot(aes(x = array_col,
+               y = array_row)) + 
+    geom_point(aes(fill = region),
+               shape = 21) + 
+    scale_fill_manual(values = JCO_Four()) +
+    facet_wrap(. ~ tissue,
+               ncol = n) +
+    ggtitle(i) +
+    theme_void(base_size = 12) + 
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  ggsave(p,
+         filename = paste0(results_dir, i, "_spots_anatomy.png"),
+         units = "in", dpi = 600,
+         height = 6, width = 7*n)
+}
 # Load pathology/feature annotations from 03c -----------------------------
 
 samples <- list.dirs("data/03c_make_halo_feature_gdfs",
@@ -66,83 +127,3 @@ gdfs2 <- map(paste0("data/03c_make_halo_feature_gdfs/", samples, "/results/in_ro
              read.csv)
 
 gdfs2 <- list_rbind(gdfs1)
-
-
-options(future.globals.maxSize=1048576000000)
-load("/projects/b1169/projects/sea_ad_hypothalamus/results/preprocessing/qc/out_TW_05-04-2023/helperfunctions.RData")
-setwd("/gpfs/projects/b1169/thomas/als_multitissue/Visium/HALO/attach")
-
-s <- readRDS("/gpfs/projects/b1169/thomas/als_multitissue/Visium/CCA/CCA.rds")
-
-s@meta.data$barcode <-  gsub("^([^_]*_[^_]*)_", "", rownames(s@meta.data))
-
-s@meta.data$sample_id[startsWith(s@meta.data$sample_id, "14")] <- paste0("JSB", s@meta.data$sample_id[startsWith(s@meta.data$sample_id, "14")])
-
-s@meta.data$sample_barcode <- paste0(s@meta.data$sample_id, "_", s@meta.data$barcode)
-
-mngs <- c("JSB146-1", "JSB146-8", "AN67-3", "AN67-7", "AN68-1")
-
-s@meta.data$Region <- NA
-
-for(sample in unique(s@meta.data$sample_id)){
-  
-  wdat <- read.csv(paste0("/gpfs/projects/b1169/boles/als_motor_circuit_visium/halo_annotations/cortical_layers/", sample, "/results/in_roi_wm.csv"))
-  
-  wdat <- wdat[wdat$barcode %in% s@meta.data$sample_barcode,]
-  
-  rownames(wdat) <- wdat$barcode
-  
-  wdat <- wdat[s@meta.data$sample_barcode[s@meta.data$sample_id == sample],]
-  
-  all.equal(wdat$barcode, s@meta.data$sample_barcode[s@meta.data$sample_id == sample])
-  
-  wdat$WM <- ifelse(wdat$in_roi == "True", "White Matter", NA)
-  
-  if(sample %in% mngs){
-    
-    mdat <- read.csv(paste0("/gpfs/projects/b1169/boles/als_motor_circuit_visium/halo_annotations/cortical_layers/", sample, "/results/in_roi_mng.csv"))
-    
-    mdat <- mdat[mdat$barcode %in% s@meta.data$sample_barcode,]
-    
-    rownames(mdat) <- mdat$barcode
-    
-    mdat <- mdat[s@meta.data$sample_barcode[s@meta.data$sample_id == sample],]
-    
-    all.equal(mdat$barcode, s@meta.data$sample_barcode[s@meta.data$sample_id == sample])
-    
-    mdat$MNG <- ifelse(mdat$in_roi == "True", "Meninges", NA)
-    
-    dat <- cbind(wdat,"MNG" = mdat$MNG)
-    
-    dat$Tissue <- ifelse(is.na(dat$WM) & is.na(dat$MNG), "Gray Matter", NA)
-    
-    dat$Tissue[dat$WM == "White Matter"] <- "White Matter"
-    
-    dat$Tissue[dat$MNG == "Meninges"] <- "Meninges"
-    
-    s@meta.data$Region[s@meta.data$sample_id == sample] <- dat$Tissue
-    
-  }else{
-    
-    wdat$WM[is.na(wdat$WM)] <- "Gray Matter"
-    
-    s@meta.data$Region[s@meta.data$sample_id == sample] <- wdat$WM
-    
-  }
-  
-}
-
-SpatialDimPlot(s, group.by = "Region", images = "X147.1")
-
-DimPlot(s, group.by = "Region", reduction = "CCA_UMAP", raster = FALSE)
-
-for(sample in names(s@images)){
-  
-  pdf(paste0("plots/", sample, ".pdf"), width = 8, height = 8)
-  print(SpatialDimPlot(s, group.by = "Region", images = sample))
-  dev.off()
-  
-}
-
-saveRDS(s, "/gpfs/projects/b1169/boles/als_motor_circuit_visium/data/02_HALO_CCA/s_HALO_CCA.rds")
-
