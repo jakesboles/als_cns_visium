@@ -3,3 +3,4 @@ plots/*
 data/*
 envs/*
 __pycache__/
+logs/*
