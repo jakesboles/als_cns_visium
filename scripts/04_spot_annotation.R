@@ -67,15 +67,16 @@ gdfs1 <- gdfs1 %>%
                                 in_mcx_wm == "True" & in_mcx_meninges == "True" ~ "Flag",
                                 in_mcx_wm == "False" & 
                                   (in_mcx_meninges == "False" | is.na(in_mcx_meninges)) ~ "GM"),
-         sc_region = case_when(in_sc_gm == "True" ~ "GM",
+         sc_region = case_when(in_sc_wm == "True" & in_sc_gm == "False" ~ "WM",
+                               in_sc_gm == "True" ~ "GM",
                                in_sc_meninges == "True" ~ "Meninges",
                                in_sc_nerve_bundles == "True" ~ "Nerve bundle",
-                               in_sc_gm == "False" & 
-                                 (in_sc_meninges == "False" | is.na(in_sc_meninges)) & 
-                                 (in_sc_nerve_bundles == "False" | is.na(in_sc_nerve_bundles)) ~ "WM",
                                (in_sc_gm == "True" & in_sc_meninges == "True") | 
                                  (in_sc_gm == "True" & in_sc_nerve_bundles == "True") | 
-                                 (in_sc_meninges == "True" & in_sc_nerve_bundles == "True") ~ "Flag"))
+                                 (in_sc_meninges == "True" & in_sc_nerve_bundles == "True") | 
+                                 (in_sc_gm == "True" & in_sc_wm == "True") | 
+                                 (in_sc_meninges == "True" & in_sc_wm == "True") | 
+                                 (in_sc_nerve_bundles == "True" & in_sc_wm == "True") ~ "Flag"))
 
 # table(is.na(gdfs1$mcx_region))
 
