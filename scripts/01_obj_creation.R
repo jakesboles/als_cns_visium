@@ -3,7 +3,7 @@ library(Seurat)
 library(scCustomize)
 library(BPCells)
 
-setwd("/projects/b1169/boles/als_motor_circuit_visium/")
+setwd("/projects/b1169/boles/als_cns_visium/")
 
 data_dir <- "data/01_obj_creation/"
 dir.create(data_dir,
