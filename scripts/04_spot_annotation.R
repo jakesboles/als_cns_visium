@@ -1,27 +1,71 @@
 suppressMessages({
   library(tidyverse) 
   library(Seurat)
+  library(readxl)
 })
 
-
 setwd("/projects/b1169/boles/als_cns_visium")
-
 
 # Get meta data from 02 ---------------------------------------------------
 
 meta <- readRDS("data/02_qc/cns_metadata.rds")
 
+meta$code <- str_split_i(rownames(meta), "_", i = 2)
 
 # Get demographic data ----------------------------------------------------
 
+key <- read_xlsx("tab_data/master.xlsx",
+                 sheet = 1)
 
+key <- key %>%
+  dplyr::select(c(code, sample, tissue)) %>% 
+  mutate(batch = str_split_i(code, "-", i = 1)) %>%
+  mutate(code = if_else(str_detect(code, "AN"), code, paste0("JSB", code)))
+
+demo <- read.csv("tab_data/target_als_demographics_compiled.csv")
+
+demo <- demo %>% 
+  mutate(Case.Number = str_remove_all(Case.Number, "-"),
+         group = case_when(C9orf72.mutation == "Y" ~ "C9orf72",
+                           Clinical.Diagnosis == "Control" ~ "Control",
+                           .default = "sALS")) %>% 
+  dplyr::rename("sample" = "Case.Number",
+                "age" = "Age.at.Death",
+                "sex" = "Sex") %>% 
+  dplyr::select(c(sample, group, age, sex))
+
+meta <- meta %>% 
+  rownames_to_column(var = "barcode") %>%
+  left_join(key, 
+            by = "code") %>% 
+  left_join(demo,
+            by = "sample")
 
 # Load anatomical annotations from 03b ------------------------------------
 
-samples <- list.dirs("data/03b_")
+samples <- list.dirs("data/03b_make_halo_gdfs",
+                     recursive = F,
+                     full.names = F)
+
+gdfs1 <- map(paste0("data/03b_make_halo_gdfs/", samples, "/results/in_roi.csv"),
+             read.csv)
+
+gdfs1 <- list_rbind(gdfs1)
+gdfs1$barcode <- paste0("_", gdfs1$barcode)
+
+# check that barcodes match
+table(meta$barcode %in% gdfs1$barcode) # all good
 
 # Load pathology/feature annotations from 03c -----------------------------
 
+samples <- list.dirs("data/03c_make_halo_feature_gdfs",
+                     recursive = F,
+                     full.names = F)
+
+gdfs2 <- map(paste0("data/03c_make_halo_feature_gdfs/", samples, "/results/in_roi.csv"),
+             read.csv)
+
+gdfs2 <- list_rbind(gdfs1)
 
 
 options(future.globals.maxSize=1048576000000)
