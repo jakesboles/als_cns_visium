@@ -23,18 +23,21 @@ os.chdir("/gpfs/projects/b1169/boles/als_cns_visium")
 # from, never written to, here.
 spot_gdf_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/03a_make_spot_gdfs/"
 
-# Halo annotations of anatomical regions (gray/white matter, meninges, nerve
-# bundles), organized as one subfolder per annotated region (e.g.
-# mcx_meninges, sc_gm), each containing one geoJSON per annotated sample.
-# Every category under this directory is processed in one run. Annotated
-# features (e.g. pTDP-43, pGA) live alongside this in data/halo_annotations/
-# but are handled separately by 03c_make_halo_feature_gdfs.py, since spots
-# are classified into a region by area coverage but flagged for a feature by
-# any overlap at all -- see that script for why.
-annotations_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/halo_annotations/anatomy/"
+# Halo annotations of features (e.g. pTDP-43, pGA aggregates), organized as
+# one subfolder per annotated feature (e.g. mcx_ptdp, mcx_pga), each
+# containing one geoJSON per annotated sample. Every category under this
+# directory is processed in one run. Anatomical regions (gray/white matter,
+# meninges, nerve bundles) live alongside this in data/halo_annotations/ but
+# are handled separately by 03b_make_halo_gdfs.py, since a spot is called
+# "in" an anatomical region by majority area coverage, while a spot is
+# flagged for a feature by any overlap with it at all -- a feature
+# annotation marks a small structure (an aggregate, a cell) that can sit
+# anywhere within a spot's footprint, not a region a spot is expected to be
+# substantially inside of.
+annotations_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/halo_annotations/features/"
 
-data_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/03b_make_halo_gdfs/"
-results_dir = "/gpfs/projects/b1169/boles/als_cns_visium/results/03b_make_halo_gdfs/"
+data_dir = "/gpfs/projects/b1169/boles/als_cns_visium/data/03c_make_halo_feature_gdfs/"
+results_dir = "/gpfs/projects/b1169/boles/als_cns_visium/results/03c_make_halo_feature_gdfs/"
 os.makedirs(data_dir, exist_ok=True)
 os.makedirs(results_dir, exist_ok=True)
 
@@ -46,18 +49,9 @@ img_dir = "/gpfs/projects/b1042/Gate_Lab/boles/als_motor_circuit_visium/images_f
 # AN68-1) never silently gets processed.
 exclude = ["137-1", "137-2", "AN16-1", "AN68-1", "AN68-2", "AN69-7", "AN69-8"]
 
-# A spot is called "in" a region if more than this fraction of its area is
-# covered by that region's annotated polygon(s), rather than requiring the
-# whole spot to fall inside it. Spots straddling a region boundary are left
-# unclassified for that region either way; any tissue not covered by a
-# majority in any annotated category is meant to be picked up downstream as
-# whichever region wasn't explicitly annotated (e.g. gray matter, once
-# meninges/white matter are accounted for).
-OVERLAP_THRESHOLD = 0.5
-
 # Each combined per-category figure is downsampled by this factor before
 # plotting, same rationale as 03a_make_spot_gdfs.py -- keeps memory and file
-# size sane when a category's figure holds ~20+ full-res image crops at once.
+# size sane when a category's figure holds many full-res image crops at once.
 DOWNSAMPLE = 5
 
 # Saved as PNG rather than PDF: a PDF keeps every spot/ROI as a separate
@@ -93,7 +87,7 @@ categories = sorted(
 print(f"Found {len(categories)} annotation categories: {', '.join(categories)}")
 
 # Each sample's spot GDF is read at most once no matter how many categories
-# reference it (e.g. AN67-3 shows up in mcx_meninges, mcx_ptdp, and mcx_wm).
+# reference it.
 spot_gdf_cache = {}
 
 def load_spot_gdf(sample):
@@ -152,16 +146,15 @@ for category in categories:
 
     # Halo's export carries bookkeeping columns alongside the geometry
     # (object type, lock state, a classification label), and the exact set
-    # of columns isn't guaranteed to be the same across annotation types --
-    # e.g. an AI-model-derived category like mcx_ptdp need not match a
-    # manually-drawn region like mcx_meninges. Since every polygon in a
-    # given category's file is unioned into one region below regardless of
-    # any per-polygon label, none of those columns are actually needed, so
-    # they're dropped unconditionally instead of by name. NOTE: this assumes
-    # every polygon in one file belongs to the single class implied by its
-    # category folder -- if any category's geoJSON actually mixes multiple
-    # classifications that should be treated differently, filter on
-    # `classification` before this line rather than dropping it.
+    # of columns isn't guaranteed to be the same across annotation types.
+    # Since every polygon in a given category's file is unioned into one
+    # region below regardless of any per-polygon label, none of those
+    # columns are actually needed, so they're dropped unconditionally
+    # instead of by name. NOTE: this assumes every polygon in one file
+    # belongs to the single class implied by its category folder -- if any
+    # category's geoJSON actually mixes multiple classifications that
+    # should be treated differently, filter on `classification` before this
+    # line rather than dropping it.
     rois = rois[["geometry"]]
 
     # Convert ROIs to Polygons
@@ -179,12 +172,12 @@ for category in categories:
     os.makedirs(f"{sample_dir}gdf_halo", exist_ok=True)
     rois.to_parquet(f"{sample_dir}gdf_halo/{category}.parquet")
 
-    # Identify ST spots with >OVERLAP_THRESHOLD of their area covered by
-    # this category's (dissolved) annotated region.
+    # Unlike 03b_make_halo_gdfs.py's anatomical regions, a feature spot is
+    # flagged by any overlap at all with the (dissolved) annotated
+    # feature(s), not a majority-area threshold -- a single aggregate
+    # touching a spot's edge is still a spot containing that feature.
     roi_union = unary_union(rois.geometry)
-    spot_area = spot_gdf.geometry.area
-    overlap_area = spot_gdf.geometry.intersection(roi_union).area
-    in_roi = (overlap_area / spot_area) > OVERLAP_THRESHOLD
+    in_roi = spot_gdf.geometry.intersects(roi_union)
 
     if sample not in sample_results:
       sample_results[sample] = pd.DataFrame(index=spot_gdf["barcode"].values)
@@ -223,7 +216,7 @@ for category in categories:
     # Plot ROIs
     rois.plot(ax=ax, facecolor="#FFDBBB", alpha=0.4)
 
-    # Plot ST spots in this category's region
+    # Plot ST spots containing this category's feature
     spot_gdf[in_roi].plot(ax=ax, facecolor="#003151", alpha=0.4)
 
     ax.set_xlim(minx, maxx)
