@@ -76,9 +76,10 @@ gdfs1 <- gdfs1 %>%
                                  (in_sc_meninges == "True" & in_sc_nerve_bundles == "True") | 
                                  (in_sc_gm == "True" & in_sc_wm == "True") | 
                                  (in_sc_meninges == "True" & in_sc_wm == "True") | 
-                                 (in_sc_nerve_bundles == "True" & in_sc_wm == "True") ~ "Flag"))
-
-# table(is.na(gdfs1$mcx_region))
+                                 (in_sc_nerve_bundles == "True" & in_sc_wm == "True") ~ "Flag",
+                               in_sc_wm == "False" & in_sc_gm == "False" & 
+                                 (in_sc_meninges == "False" | is.na(in_sc_meninges)) & 
+                                 (in_sc_nerve_bundles == "False" | is.na(in_sc_nerve_bundles)) ~ "Remove"))
 
 gdfs1 <- gdfs1 %>%
   mutate(region = coalesce(mcx_region, sc_region)) %>% 
@@ -105,8 +106,7 @@ for (i in samples){
     ggplot(aes(x = array_col,
                y = array_row)) + 
     geom_point(aes(fill = region),
-               shape = 21) + 
-    scale_fill_manual(values = JCO_Four()) +
+               shape = 21) +
     facet_wrap(. ~ tissue,
                ncol = n) +
     ggtitle(i) +
