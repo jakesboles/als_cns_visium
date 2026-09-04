@@ -11,6 +11,11 @@ dir.create(results_dir,
            showWarnings = F,
            recursive = T)
 
+data_dir <- "data/04_spot_annotation/"
+dir.create(data_dir,
+           showWarnings = F,
+           recursive = T)
+
 # Get meta data from 02 ---------------------------------------------------
 
 meta <- readRDS("data/02_qc/cns_metadata.rds")
@@ -146,24 +151,42 @@ meta <- meta %>%
   mutate_at(vars(in_mcx_ptdp, in_mcx_pga),
              ~ replace_na(.x, "False"))
 
-# meta <- meta %>%
-#   mutate(ptdp = if_else(in_mcx_ptdp == "True", TRUE, FALSE),
-#          pga = if_else(in_mcx_pga == "True", TRUE, FALSE))
+meta <- meta %>%
+  mutate(ptdp = if_else(in_mcx_ptdp == "True" | in_sc_ptdp, TRUE, FALSE))
+         # pga = if_else(in_mcx_pga == "True", TRUE, FALSE)) # update once pGA is done in sc
 
-table(meta$in_mcx_pga)
+samples <- unique(meta$sample)
 
-meta %>% 
-  group_by(group, tissue, ptdp) %>% 
-  summarize(n = n())
+for (i in samples){
+  
+  n <- meta %>% 
+    filter(sample == i) %>% 
+    pull(tissue) %>%
+    unique() %>% 
+    length()
+  
+  p <- meta %>% 
+    filter(sample == i) %>%
+    ggplot(aes(x = array_col,
+               y = array_row)) + 
+    geom_point(aes(fill = ptdp),
+               shape = 21) +
+    facet_wrap(. ~ tissue,
+               ncol = n) +
+    ggtitle(i) +
+    theme_void(base_size = 12) + 
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  ggsave(p,
+         filename = paste0(results_dir, i, "_spots_ptdp.png"),
+         units = "in", dpi = 600,
+         height = 6, width = 7*n)
+}
 
-meta %>% 
-  filter(sample == "GBB1817") %>%
-  ggplot(aes(x = array_col,
-             y = array_row)) + 
-  geom_point(aes(fill = pga),
-             shape = 21) +
-  facet_wrap(. ~ tissue,
-             ncol = 2) +
-  # ggtitle() +
-  theme_void(base_size = 12) + 
-  theme(plot.title = element_text(hjust = 0.5))
+# Filter unlabeled spots and save ----------------------------------------------
+
+meta <- meta %>% 
+  filter(region == "Remove")
+
+saveRDS(meta,
+        file = "data/04_spot_annotation/metadata.rds")
