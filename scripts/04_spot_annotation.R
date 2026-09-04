@@ -17,6 +17,8 @@ meta <- readRDS("data/02_qc/cns_metadata.rds")
 
 meta$code <- str_split_i(rownames(meta), "_", i = 2)
 
+meta <- meta[c(1:11, 26)]
+
 # Get demographic data ----------------------------------------------------
 
 key <- read_xlsx("tab_data/master.xlsx",
@@ -127,4 +129,41 @@ samples <- list.dirs("data/03c_make_halo_feature_gdfs",
 gdfs2 <- map(paste0("data/03c_make_halo_feature_gdfs/", samples, "/results/in_roi.csv"),
              read.csv)
 
-gdfs2 <- list_rbind(gdfs1)
+gdfs2 <- list_rbind(gdfs2)
+gdfs2$barcode <- paste0("_", gdfs2$barcode)
+
+# meta[!(meta$barcode %in% gdfs2$barcode),] %>% distinct(group, sample, tissue)
+
+gdfs2 <- gdfs2 %>%
+  mutate(in_mcx_pga_ptdp = if_else(in_mcx_pga == "True" & in_mcx_ptdp == "True",
+                                   "True", "False"))
+
+meta <- meta %>% 
+  left_join(gdfs2, 
+            by = "barcode")
+
+meta <- meta %>% 
+  mutate_at(vars(in_mcx_ptdp, in_mcx_pga),
+             ~ replace_na(.x, "False"))
+
+# meta <- meta %>%
+#   mutate(ptdp = if_else(in_mcx_ptdp == "True", TRUE, FALSE),
+#          pga = if_else(in_mcx_pga == "True", TRUE, FALSE))
+
+table(meta$in_mcx_pga)
+
+meta %>% 
+  group_by(group, tissue, ptdp) %>% 
+  summarize(n = n())
+
+meta %>% 
+  filter(sample == "GBB1817") %>%
+  ggplot(aes(x = array_col,
+             y = array_row)) + 
+  geom_point(aes(fill = pga),
+             shape = 21) +
+  facet_wrap(. ~ tissue,
+             ncol = 2) +
+  # ggtitle() +
+  theme_void(base_size = 12) + 
+  theme(plot.title = element_text(hjust = 0.5))
