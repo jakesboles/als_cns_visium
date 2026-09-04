@@ -181,6 +181,23 @@ for (i in samples){
          filename = paste0(results_dir, i, "_spots_ptdp.png"),
          units = "in", dpi = 600,
          height = 6, width = 7*n)
+  
+  p <- meta %>% 
+    filter(sample == i) %>%
+    ggplot(aes(x = array_col,
+               y = array_row)) + 
+    geom_point(aes(fill = pga),
+               shape = 21) +
+    facet_wrap(. ~ tissue,
+               ncol = n) +
+    ggtitle(i) +
+    theme_void(base_size = 12) + 
+    theme(plot.title = element_text(hjust = 0.5))
+  
+  ggsave(p,
+         filename = paste0(results_dir, i, "_spots_pga.png"),
+         units = "in", dpi = 600,
+         height = 6, width = 7*n)
 }
 
 # Filter unlabeled spots and save ----------------------------------------------
