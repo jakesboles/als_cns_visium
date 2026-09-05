@@ -30,18 +30,17 @@ data_dir <- "data/deseq2_by_compartment/"
 dir.create(data_dir, showWarnings = F, recursive = T)
 
 # Load annotated metadata and raw counts -------------------------------------
-# 04_spot_annotation.R's metadata.rds carries region (GM/WM/Meninges/Nerve
-# bundle), tissue, sample (donor), group, sex, and age for every spot it
-# retained. Raw counts come from 02_qc.R's BPCells matrix (pre-normalization,
-# unlike anything saved from 03_integration_harmony.R onward), subset to
-# exactly the spots 04 kept.
+# 04_spot_annotation.R writes out the region-filtered object's own pieces
+# directly: metadata.rds's rownames are the real barcodes (not a separate
+# "barcode" column), and bpcells_data is that same object's raw counts
+# (pre-normalization), already subset to exactly the spots 04 kept -- no
+# need to re-read 02_qc.R's unfiltered matrix and re-subset by hand here.
 
 message("Reading in metadata and raw counts")
 
 meta <- readRDS("data/04_spot_annotation/metadata.rds")
-rownames(meta) <- meta$barcode
 
-counts <- open_matrix_dir("data/02_qc/bpcells_cns")
+counts <- open_matrix_dir("data/04_spot_annotation/bpcells_data")
 counts <- counts[, rownames(meta)]
 
 obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "Spatial")

@@ -8,7 +8,7 @@ suppressMessages({
 
 setwd("/projects/b1169/boles/als_cns_visium")
 
-in_dir <- "data/02_qc/"
+in_dir <- "data/04_spot_annotation/"
 
 results_dir <- "results/05_integration/"
 dir.create(results_dir,
@@ -20,9 +20,14 @@ dir.create(data_dir,
            showWarnings = F,
            recursive = T)
 
-counts <- open_matrix_dir(paste0(in_dir, "bpcells_cns"))
-meta <- readRDS("data/04_spot_annotation/metadata.rds")
-images <- readRDS(paste0(in_dir, "cns_images.rds"))
+# 04_spot_annotation.R already writes out the region-filtered object's own
+# pieces directly -- its metadata.rds's rownames are the real barcodes
+# (not a separate "barcode" column), and its images.rds is already
+# subset to match via Seurat's own subset(), so there's no need to
+# re-read 02_qc.R's unfiltered counts/images and re-subset by hand here.
+counts <- open_matrix_dir(paste0(in_dir, "bpcells_data"))
+meta <- readRDS(paste0(in_dir, "metadata.rds"))
+images <- readRDS(paste0(in_dir, "images.rds"))
 
 counts <- counts[, rownames(meta)]
 
@@ -86,7 +91,7 @@ if (dir.exists(bpcells_data_dir)){
   unlink(bpcells_data_dir, recursive = T)
 }
 
-write_matrix_dir(mat = obj[["RNA"]]$data,
+write_matrix_dir(mat = obj[["Spatial"]]$data,
                  dir = bpcells_data_dir)
 
 saveRDS(obj[["harmony"]],
