@@ -10,6 +10,16 @@ setwd("/projects/b1169/boles/als_cns_visium")
 
 in_dir <- "data/02_qc/"
 
+results_dir <- "results/05_integration/"
+dir.create(results_dir,
+           showWarnings = F,
+           recursive = T)
+
+data_dir <- "data/05_integration/"
+dir.create(data_dir,
+           showWarnings = F,
+           recursive = T)
+
 counts <- open_matrix_dir(paste0(in_dir, "bpcells_cns"))
 meta <- readRDS("data/04_spot_annotation/metadata.rds")
 images <- readRDS(paste0(in_dir, "cns_images.rds"))
@@ -24,79 +34,63 @@ obj <- NormalizeData(obj) %>%
   ScaleData() %>% 
   RunPCA()
 
+p <- ElbowPlot(obj, ndims = 50)
+ggsave(p,
+       filename = paste0(results_dir, "pca_elbow.png"),
+       units = "in", dpi = 600, bg = "white",
+       height = 6, width = 6)
+
+Iterate_PC_Loading_Plots(obj,
+                         file_path = results_dir,
+                         file_name = "pca_loadings")
+
 obj[["Spatial"]] <- split(obj[["Spatial"]], f = obj@meta.data$orig.ident)
 
-s <- IntegrateLayers(s, 
+obj <- IntegrateLayers(obj, 
                      method = HarmonyIntegration, 
                      assay = "Spatial", 
                      layers = "data", 
                      orig.reduction = "pca", 
-                     new.reduction = "harmony")
+                     new.reduction = "harmony",
+                     dims = 1:15)
 
-# saveRDS(s, "Harmony.rds")
+obj[["Spatial"]] <- JoinLayers(obj[["Spatial"]])
 
-s <- FindNeighbors(s, reduction = "harmony", dims = 1:30)
+obj <- RunUMAP(obj,
+               umap.method = "uwot",
+               reduction = "harmony",
+               dims = 1:15,
+               # nn.name = "RNA.nn",
+               metric = "euclidean",
+               min.dist = 0.5,
+               n.neighbors = 15L,
+               # repulsion.strength = 0.5,
+               # uwot.init = "random",
+               reduction.name = "harmony_umap",
+               return.model = F)
 
-# s <- FindClusters(s, resolution = 0.5, algorithm = 4)
-
-s <- RunUMAP(s, reduction = "harmony", reduction.name = "harmony_umap", dims = 1:30)
-
-# pdf("Harmony_UMAP_CNS.pdf", width = 12, height = 12)
-DimPlot(s, group.by = c("tissue"), reduction = "harmony_umap", raster = T, shuffle = T)
-# dev.off()
-
-FeaturePlot_scCustom(s,
-                     features = "MOBP",
-                     raster = T,
-                     reduction = "harmony_umap")
-
-saveRDS(s, "Harmony_CNS.rds")
-
-
-
-
-
-meta <- s@meta.data %>%
-  dplyr::select(c(sample_id, tissue)) %>%
-  distinct()
-
-meta$Counts <- meta$Features <- 0
-
-for(sample in meta$sample_id){
+for (group in c("region", "tissue", "orig.ident", "group", "ptdp")){
+  w <- if (group %in% c("orig.ident")) 15 else 11
   
-  meta$Counts[meta$sample_id == sample] <- median(s@meta.data$nCount_Spatial[s@meta.data$sample_id == sample])
-  
-  meta$Features[meta$sample_id == sample] <- median(s@meta.data$nFeature_Spatial[s@meta.data$sample_id == sample])
-  
+  p <- DimPlot_scCustom(obj,
+                        reduction = "harmony_umap",
+                        group.by = group)
+  ggsave(p,
+         filename = paste0(results_dir, group, "_dimplot.png"),
+         units = "in", dpi = 600,
+         height = 8, width = w)
 }
 
-meta <- meta %>% 
-  pivot_longer(names_to = "Var", values_to = "Value", cols = c(3:4))
+bpcells_data_dir <- paste0(data_dir, "bpcells_data")
+if (dir.exists(bpcells_data_dir)){
+  unlink(bpcells_data_dir, recursive = T)
+}
 
-ggplot(meta, aes(x = sample_id, y = Value, fill = Var, color = tissue)) +
-  geom_col(position = position_dodge2(1)) + scale_fill_manual(values = c("dodgerblue", "firebrick1")) +
-  scale_color_manual(values = c("black", "green")) + 
-  theme_cowplot() + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+write_matrix_dir(mat = obj[["RNA"]]$data,
+                 dir = bpcells_data_dir)
 
+saveRDS(obj[["harmony"]],
+        file = paste0(data_dir, "harmony.rds"))
 
-meta_sorted <- meta %>%
-  # 1. Get the 'Counts' value for each sample to use as our sorting key
-  group_by(sample_id) %>%
-  mutate(count_key = Value[Var == "Counts"]) %>%
-  ungroup() %>%
-  # 2. Arrange by tissue first, then by the Count key in descending order
-  arrange(tissue, desc(count_key)) %>%
-  # 3. Lock this specific order into the sample_id factor levels
-  mutate(sample_id = fct_inorder(sample_id))
-
-# Now use 'meta_sorted' in your ggplot code
-ggplot(meta_sorted, aes(x = sample_id, y = Value, fill = Var, color = tissue)) +
-  geom_col(position = position_dodge2(1)) + 
-  scale_fill_manual(values = c("dodgerblue", "firebrick1")) +
-  scale_color_manual(values = c("black", "green")) + 
-  theme_cowplot() + ggtitle("Median") +
-  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
-
-
-
-
+saveRDS(obj[["harmony_umap"]],
+        file = paste0(data_dir, "harmony_umap.rds"))
