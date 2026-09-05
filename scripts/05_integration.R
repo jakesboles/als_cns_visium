@@ -3,41 +3,28 @@ suppressMessages({
   library(Seurat)
   library(readxl)
   library(scCustomize)
+  library(BPCells)
 })
 
-options(future.globals.maxSize=1048576000000)
-load("/projects/b1169/projects/sea_ad_hypothalamus/results/preprocessing/qc/out_TW_05-04-2023/helperfunctions.RData")
-setwd("/gpfs/projects/b1169/thomas/als_multitissue/Visium/CCA")
+setwd("/projects/b1169/boles/als_cns_visium")
 
-s <- readRDS("/gpfs/projects/b1169/boles/als_motor_circuit_visium/data/02_qc/filtered_cns_obj.rds")
+in_dir <- "data/02_qc/"
 
-dat <- read_excel("master.xlsx")
+counts <- open_matrix_dir(paste0(in_dir, "bpcells_cns"))
+meta <- readRDS("data/04_spot_annotation/metadata.rds")
+images <- readRDS(paste0(in_dir, "cns_images.rds"))
 
-dat <- dat[dat$code %in% s@meta.data$sample_id,]
+counts <- counts[, rownames(meta)]
 
-s@meta.data$tissue <- NA
+obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "Spatial")
+obj@images <- images
 
-for(sample in dat$code){
-  
-  s@meta.data$tissue[s@meta.data$sample_id == sample] <- dat$tissue[dat$code == sample]
-  
-}
+obj <- NormalizeData(obj) %>% 
+  FindVariableFeatures() %>% 
+  ScaleData() %>% 
+  RunPCA()
 
-s <- UpdateSeuratObject(s)
-
-s <- NormalizeData(s)
-s <- FindVariableFeatures(s)
-s <- ScaleData(s, features = VariableFeatures(s))
-
-s <- RunPCA(s)
-# s <- FindNeighbors(s)
-# s <- RunUMAP(s, dims = c(1:30))
-
-# DimPlot(s, group.by = "sample_id", label = T, label.box = F, repel = T, raster = T)
-
-# s <- JoinLayers(s)
-
-# s[["Spatial"]] <- split(s[["Spatial"]], f = s@meta.data$tissue)
+obj[["Spatial"]] <- split(obj[["Spatial"]], f = obj@meta.data$orig.ident)
 
 s <- IntegrateLayers(s, 
                      method = HarmonyIntegration, 
