@@ -20,7 +20,8 @@ dir.create(data_dir,
 
 meta <- readRDS("data/02_qc/cns_metadata.rds")
 
-meta$code <- str_split_i(rownames(meta), "_", i = 1)
+meta$code <- str_split_i(rownames(meta), "_", i = 2)
+meta$batch <- str_split_i(meta$code, "-", i = 1)
 
 meta <- meta[c(1:11, 26)]
 
@@ -202,8 +203,35 @@ for (i in samples){
 
 # Filter unlabeled spots and save ----------------------------------------------
 
-meta <- meta %>%
+in_dir <- "data/02_qc/"
+
+out_dir <- "data/04_spot_annotation/"
+dir.create(out_dir, 
+           showWarnings = F,
+           recursive = T)
+
+counts <- open_matrix_dir(paste0(in_dir, "bpcells_cns"))
+meta <- readRDS(paste0(in_dir, "metadata.rds"))
+images <- readRDS(paste0(in_dir, "cns_images.rds"))
+
+obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "Spatial")
+obj@images <- images
+
+obj <- obj %>%
   filter(region != "Remove")
 
-saveRDS(meta,
-        file = "data/04_spot_annotation/metadata.rds")
+bpcells_data_dir <- paste0(out_dir, "bpcells_data")
+if (dir.exists(bpcells_data_dir)){
+  unlink(bpcells_data_dir, recursive = T)
+}
+
+counts_out <- convert_matrix_type(filtered_obj[["Spatial"]]$counts, type = "uint32_t")
+
+write_matrix_dir(mat = counts_out,
+                 dir = bpcells_data_dir)
+
+saveRDS(obj@meta.data,
+        file = paste0(out_dir, "metadata.rds"))
+
+saveRDS(obj@images,
+        file = paste0(out_dir, "images.rds"))
