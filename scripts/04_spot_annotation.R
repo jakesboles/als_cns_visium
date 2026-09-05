@@ -2,6 +2,7 @@ suppressMessages({
   library(tidyverse) 
   library(Seurat)
   library(readxl)
+  library(BPCells)
 })
 
 setwd("/projects/b1169/boles/als_cns_visium")
@@ -126,6 +127,7 @@ for (i in samples){
          units = "in", dpi = 600,
          height = 6, width = 7*n)
 }
+
 # Load pathology/feature annotations from 03c -----------------------------
 
 samples <- list.dirs("data/03c_make_halo_feature_gdfs",
@@ -140,21 +142,21 @@ gdfs2$barcode <- paste0("_", gdfs2$barcode)
 
 # meta[!(meta$barcode %in% gdfs2$barcode),] %>% distinct(group, sample, tissue)
 
-gdfs2 <- gdfs2 %>%
-  mutate(in_mcx_pga_ptdp = if_else(in_mcx_pga == "True" & in_mcx_ptdp == "True",
-                                   "True", "False"))
+# gdfs2 <- gdfs2 %>%
+#   mutate(in_mcx_pga_ptdp = if_else(in_mcx_pga == "True" & in_mcx_ptdp == "True",
+#                                    "True", "False"))
 
 meta <- meta %>% 
   left_join(gdfs2, 
             by = "barcode")
 
 meta <- meta %>% 
-  mutate_at(vars(in_mcx_ptdp, in_mcx_pga),
+  mutate_at(vars(in_mcx_ptdp, in_mcx_pga, in_sc_ptdp),
              ~ replace_na(.x, "False"))
 
 meta <- meta %>%
-  mutate(ptdp = if_else(in_mcx_ptdp == "True" | in_sc_ptdp, TRUE, FALSE))
-         # pga = if_else(in_mcx_pga == "True", TRUE, FALSE)) # update once pGA is done in sc
+  mutate(ptdp = if_else(in_mcx_ptdp == "True" | in_sc_ptdp == "True", TRUE, FALSE),
+         pga = if_else(in_mcx_pga == "True", TRUE, FALSE)) # update once pGA is done in sc
 
 samples <- unique(meta$sample)
 
@@ -174,6 +176,7 @@ for (i in samples){
                shape = 21) +
     facet_wrap(. ~ tissue,
                ncol = n) +
+    scale_fill_manual(values = c("gray80", "dodgerblue")) +
     ggtitle(i) +
     theme_void(base_size = 12) + 
     theme(plot.title = element_text(hjust = 0.5))
@@ -191,6 +194,7 @@ for (i in samples){
                shape = 21) +
     facet_wrap(. ~ tissue,
                ncol = n) +
+    scale_fill_manual(values = c("gray80", "firebrick1")) +
     ggtitle(i) +
     theme_void(base_size = 12) + 
     theme(plot.title = element_text(hjust = 0.5))
@@ -200,6 +204,9 @@ for (i in samples){
          units = "in", dpi = 600,
          height = 6, width = 7*n)
 }
+
+meta <- meta %>% 
+  dplyr::select(-c(in_mcx_ptdp, in_sc_ptdp, in_mcx_pga))
 
 # Filter unlabeled spots and save ----------------------------------------------
 
@@ -220,14 +227,14 @@ obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "Spatial")
 obj@images <- images
 
 obj <- obj %>%
-  filter(region != "Remove")
+  subset(region != "Remove")
 
 bpcells_data_dir <- paste0(out_dir, "bpcells_data")
 if (dir.exists(bpcells_data_dir)){
   unlink(bpcells_data_dir, recursive = T)
 }
 
-counts_out <- convert_matrix_type(filtered_obj[["Spatial"]]$counts, type = "uint32_t")
+counts_out <- convert_matrix_type(obj[["Spatial"]]$counts, type = "uint32_t")
 
 write_matrix_dir(mat = counts_out,
                  dir = bpcells_data_dir)
