@@ -211,8 +211,10 @@ dir.create(out_dir,
            recursive = T)
 
 counts <- open_matrix_dir(paste0(in_dir, "bpcells_cns"))
-meta <- readRDS(paste0(in_dir, "metadata.rds"))
 images <- readRDS(paste0(in_dir, "cns_images.rds"))
+
+meta <- meta %>% 
+  column_to_rownames(var = "barcode")
 
 obj <- CreateSeuratObject(counts = counts, meta.data = meta, assay = "Spatial")
 obj@images <- images
