@@ -20,7 +20,7 @@ dir.create(data_dir,
 
 meta <- readRDS("data/02_qc/cns_metadata.rds")
 
-meta$code <- str_split_i(rownames(meta), "_", i = 2)
+meta$code <- str_split_i(rownames(meta), "_", i = 1)
 
 meta <- meta[c(1:11, 26)]
 
@@ -202,8 +202,8 @@ for (i in samples){
 
 # Filter unlabeled spots and save ----------------------------------------------
 
-meta <- meta %>% 
-  filter(region == "Remove")
+meta <- meta %>%
+  filter(region != "Remove")
 
 saveRDS(meta,
         file = "data/04_spot_annotation/metadata.rds")
