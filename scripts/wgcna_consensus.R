@@ -1,3 +1,57 @@
+# Runs consensus hdWGCNA (co-expression modules found consistently across
+# all 4 major anatomical compartments -- mcx GM, mcx WM, sc GM, sc WM --
+# not fit on one pooled population) on 04_spot_annotation.R's spots,
+# reattaching 05_integration.R's already-fit Harmony embedding. Single
+# run covering all 4 compartments at once (no SLURM array), matching this
+# repo's own deseq2_by_compartment.R rather than the scRNAseq sibling
+# repo's per-cell-type array-job scripts (wgcna_single.R,
+# wgcna_consensus_cns.R) -- there's no separate "target" to loop over
+# here the way there's a cell type there, since the goal is one joint
+# consensus network across all 4 compartments in a single call.
+#
+# Modeled closely on als_cns_scrnaseq/r_scripts/wgcna_consensus_cns.R
+# (consensus hdWGCNA across brain/spinal cord for shared cell types),
+# adapted from "consensus across tissue, held constant per cell type" to
+# "consensus across compartment, held constant overall":
+# - That script's per-cell-type filtering (meta_sub <- meta[meta$cell_type3
+#   == cell_type_target, ]) has no analog here -- there's no cell-type
+#   axis to filter down to first, only the region filter
+#   (region %in% c("GM", "WM")) needed to restrict to the 4 compartments
+#   in the first place.
+# - Its `cell_type3` column served two roles: MetacellsByGroups()'s
+#   ident.group, and the constant single value passed to SetMultiExpr()/
+#   ModuleConnectivity()'s group_name/group.by (there, the specific cell
+#   type being analyzed; the tissue split lives entirely in
+#   multi.group.by/multi_groups instead). Since there's no cell-type-like
+#   axis here, `dummy` (a column that's just the constant 1) fills that
+#   role -- same "constant placeholder column used as ident.group/
+#   group_name" pattern that script already uses for `cell_type3` once
+#   it's constant post-filtering, just with nothing to filter down from in
+#   the first place.
+# - `compartment` (tissue + region, e.g. "mcx_GM") plays the role
+#   `tissue` plays there: the multi.group.by/multi_groups axis
+#   SetMultiExpr()/TestSoftPowersConsensus() build separate per-group
+#   networks across before finding their consensus.
+# - Real raw counts and the Harmony embedding come from this project's own
+#   04_spot_annotation.R (bpcells_data, metadata.rds) and
+#   05_integration.R (harmony.rds) -- this project's actual pipeline
+#   stages, not the scRNAseq repo's 06/17/18.
+# - This object's assay is "Spatial" throughout (this project's Visium
+#   assay name), never "RNA" (the scRNAseq repo's assay name) -- watch
+#   for this specifically when porting anything further from that repo.
+# - Same ConstructNetwork() TOM.rda workaround as the scRNAseq repo's
+#   wgcna scripts (unfixed hdWGCNA bug, smorabit/hdWGCNA#182: it writes a
+#   temp .rda file to the working directory regardless of tom_outdir/
+#   tom_name). Not strictly needed without a SLURM array here, but kept
+#   since it's harmless and isolates the TOM output either way.
+# - Added a per-compartment minimum-spot-count check before touching raw
+#   counts, matching the abundance-safeguard convention already
+#   established in this project's deseq2_by_compartment.R and the
+#   scRNAseq repo's wgcna scripts -- a too-sparse compartment (spinal cord
+#   WM is the likeliest candidate) would otherwise produce degenerate
+#   metacells or fail deep inside TestSoftPowersConsensus()/
+#   ConstructNetwork() with a much less clear error.
+
 suppressMessages({
   library(hdWGCNA)
   library(Seurat)
@@ -21,26 +75,38 @@ theme_set(theme_cowplot())
 set.seed(256)
 enableWGCNAThreads(nThreads = 16)
 
-# Figure out which cell type this task handles ------------------------
-
 data_dir <- "data/wgcna_consensus/"
 dir.create(data_dir, showWarnings = F, recursive = T)
 
 results_dir <- "results/wgcna_consensus/"
 dir.create(results_dir, showWarnings = F, recursive = T)
 
-# Filter to this cell type before touching raw counts at all ----------------
+# Filter to the 4 anatomical compartments before touching raw counts at all -
 # See header note above.
 
-message2("Reading in metadata and filtering to this cell type")
+message2("Reading in metadata and filtering to GM/WM compartments")
 
 meta <- readRDS("data/04_spot_annotation/metadata.rds")
-meta_sub <- meta %>% 
+meta_sub <- meta %>%
   filter(region %in% c("GM", "WM")) %>%
   mutate(compartment = paste0(tissue, "_", region),
          dummy = 1)
 
 compartments <- unique(meta_sub$compartment)
+
+# Skip if any compartment is too sparse for stable metacell construction --
+# see header note above. Checked per compartment, not just on the combined
+# total, since SetMultiExpr() builds a separate metacell population and
+# network per compartment before finding the consensus.
+
+min_cells <- 200 # change as needed
+
+cell_counts <- table(meta_sub$compartment)
+if (any(cell_counts < min_cells)){
+  stop(paste0("At least one compartment has too few spots for stable ",
+              "metacell construction (min_cells = ", min_cells, "): ",
+              paste(names(cell_counts), cell_counts, sep = " = ", collapse = ", ")))
+}
 
 message2("Reading in raw counts and Harmony embedding")
 
@@ -61,15 +127,15 @@ obj[["harmony"]] <- harmony
 
 obj <- ScaleData(obj)
 
-# Identify genes expressed in at least 5% of this cell type's cells ---------
+# Identify genes expressed in at least 5% of these spots ---------------
 
-message2("Selecting genes expressed in at least 5% of this cell type")
+message2("Selecting genes expressed in at least 5% of spots")
 
-pe <- rowMeans(GetAssayData(obj, layer = "data", assay = "RNA") > 0)
+pe <- rowMeans(GetAssayData(obj, layer = "data", assay = "Spatial") > 0)
 genes_keep <- names(pe)[pe > 0.05] # change this cutoff as needed
 
 # Set up hdWGCNA -------------------------------------------------------
-# obj is already filtered to just this cell type -- see header note above.
+# obj is already filtered to just the 4 compartments -- see header note above.
 
 message2("Setting up hdWGCNA")
 
@@ -80,10 +146,10 @@ obj <- SetupForWGCNA(obj,
 
 message2("Constructing metacells")
 
-# group.by includes tissue (unlike wgcna_single.R) so metacells never mix
-# cells across tissue -- see header note above. cell_type3 is dropped
-# from group.by (constant post-filtering, same simplification as the
-# single script) but kept as ident.group.
+# group.by includes tissue (via compartment) so metacells never mix cells
+# across tissue -- see header note above. dummy is kept as ident.group,
+# same "constant placeholder column" pattern as wgcna_consensus_cns.R's
+# use of cell_type3.
 obj <- MetacellsByGroups(
   seurat_obj = obj,
   group.by = c("code", "compartment", "dummy"),
@@ -109,7 +175,7 @@ obj <- SetMultiExpr(
   use_metacells = T
 )
 
-# Find soft power per tissue -----------------------------------------------
+# Find soft power per compartment ------------------------------------------
 
 message2("Testing soft powers")
 
@@ -119,7 +185,7 @@ plot_list <- PlotSoftPowers(obj)
 
 p_list <- lapply(seq_along(compartments), function(i){
   plot_list[[i]][[1]] +
-    ggtitle(paste0("Tissue: ", compartments[i])) +
+    ggtitle(paste0("Compartment: ", compartments[i])) +
     theme(plot.title = element_text(hjust = 0.5))
 })
 p <- wrap_plots(p_list, ncol = 2)
@@ -134,13 +200,13 @@ write.csv(power_table,
           row.names = F)
 
 # Build consensus TOM and cluster genes into modules -------------------------
-# Letting ConstructNetwork() pick the soft power automatically, matching
-# the draft.
+# Letting ConstructNetwork() pick the soft power automatically.
 #
-# Same TOM.rda SLURM-array collision as wgcna_single.R -- see that
-# script's header for the full diagnosis (unfixed hdWGCNA bug,
-# smorabit/hdWGCNA#182). Same workaround: isolate the working directory
-# for just this call.
+# ConstructNetwork() writes a temp .rda file to the working directory
+# regardless of tom_outdir/tom_name (unfixed hdWGCNA bug,
+# smorabit/hdWGCNA#182) -- see header note above. Isolating the working
+# directory for just this call is defensive here (no SLURM array), but
+# harmless either way.
 
 message2("Constructing consensus network")
 
@@ -169,10 +235,12 @@ message2("Computing module eigengenes and connectivity")
 obj <- SetActiveWGCNA(obj, "wgcna_consensus")
 obj <- ModuleEigengenes(obj, group.by.vars = "code")
 
-# ModuleConnectivity() reaches back into the full single-cell "data"
-# layer for its corSparse()-based correlation step -- see wgcna_single.R's
-# header for the full BPCells/CsparseMatrix diagnosis. Deferred to right
-# before this call, not earlier, for the same reason.
+# ModuleConnectivity() reaches back into the full single-cell "data" layer
+# for its corSparse()-based correlation step, which needs a real
+# CsparseMatrix -- BPCells' lazy matrix classes don't support that
+# coercion. Deferred to right before this call, not earlier, so gene
+# selection, SetupForWGCNA(), and metacell construction above keep the
+# benefit of BPCells' lazy/streaming evaluation.
 obj[["Spatial"]]$data <- as(obj[["Spatial"]]$data, "dgCMatrix")
 
 obj <- ModuleConnectivity(obj, group_name = 1, group.by = "dummy")
@@ -189,7 +257,6 @@ write.csv(mods,
           row.names = F)
 
 # Module expression scores via UCell -----------------------------------------
-# Same approach as wgcna_single.R -- see header note above.
 
 message2("Scoring modules with UCell")
 
@@ -229,7 +296,9 @@ dev.off()
 
 # Save the hdWGCNA experiment for further downstream use ---------------------
 # Just the hdWGCNA network/module state (@misc[[wgcna_name]]), not the
-# whole Seurat object -- see header note above.
+# whole Seurat object -- matches the scRNAseq repo's wgcna scripts (the
+# object's own expression matrix is already saved separately by
+# 04_spot_annotation.R).
 
 message2("Saving hdWGCNA experiment object")
 
