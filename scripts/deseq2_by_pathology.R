@@ -39,19 +39,33 @@ obj$ptdp <- factor(obj$ptdp,
 obj$pga <- factor(obj$pga,
                   levels = c(F, T))
 
-obj <- obj %>% 
+obj <- obj %>%
   subset(region == "GM")
 
-# Define compartments ---------------------------------------------------
-# Only gray and white matter are analyzed here -- Meninges/Nerve bundle
-# spots exist in the annotated metadata but aren't part of this comparison.
+# Define comparisons ---------------------------------------------------
+# NOTE: only GM is analyzed here (region == "GM" above) -- flagged
+# separately, since this doesn't cover WM despite what a copy-pasted
+# comment used to say.
+#
+# No mcx/sALS/pga row and no sc/pga row at all -- deliberate, not a gap:
+# pGA (poly-GA) is a dipeptide repeat protein specific to the C9orf72
+# hexanucleotide repeat expansion, so sALS donors (no C9orf72 mutation)
+# aren't expected to have pGA pathology to compare, and there's no sc_pga
+# Halo annotation category yet (see data/halo_annotations/features/).
 
 guide <- tibble(
   tissues = c("mcx", "sc", "mcx", "sc", "mcx"),
   groups = c("sALS", "sALS", "C9orf72", "C9orf72", "C9orf72"),
   features = c("ptdp", "ptdp", "ptdp", "ptdp", "pga")
 ) %>%
-  mutate(file = paste0(features, "_", tissues))
+  # Must include `groups`, not just `features`/`tissues` -- ptdp/mcx and
+  # ptdp/sc each appear for two different groups above, and file is used
+  # for both the results subdirectory AND the flat dds.rds path below. If
+  # file collides across rows, the second row silently overwrites the
+  # first row's dds.rds and sample_filtering.csv (the per-group results
+  # CSVs were already fine, since those are separately named by
+  # guide$groups[i] within comp_results_dir).
+  mutate(file = paste0(features, "_", tissues, "_", groups))
 
 # A pseudobulk sample built from too few spots is mostly zero, which can
 # make every gene contain a zero in some sample -- DESeq2's default
@@ -84,40 +98,51 @@ for (i in seq_len(nrow(guide))){
   
   exp <- bulk$Spatial
   
+  # tidyr::complete() fills in an explicit n_spots = 0 row for a donor
+  # missing one feature status entirely (e.g. an sALS donor with zero
+  # pTDP+ spots in GM) -- without it, a donor like that would never
+  # appear as a row for the missing status at all, so it could never get
+  # marked retained = FALSE / dumped below, and would sneak into meta_comp
+  # with only one feature level. design = ~ sample + feature further down
+  # needs every retained donor to contribute both levels (sample is used
+  # as a paired/blocking term) -- an unpaired donor there makes that
+  # donor's own sample indicator collinear with the feature indicator,
+  # which DESeq2 will refuse to fit ("model matrix is not full rank").
   spot_counts <- sub@meta.data %>%
-    dplyr::count(sample, !!sym(guide$features[i]), name = "n_spots")
-  
-  # Every donor present in this compartment, whether or not it survives the
-  # min_spots_per_sample filter below -- saved so a skipped/thinned
-  # compartment's sample composition can be checked later without rerunning
-  # anything.
-  sample_table <- sub@meta.data %>%
-    dplyr::select(sample, guide$features[i]) %>%
-    distinct() %>%
-    left_join(spot_counts, by = c("sample", guide$features[i])) %>%
+    dplyr::count(sample, !!sym(guide$features[i]), name = "n_spots") %>%
+    tidyr::complete(sample, !!sym(guide$features[i]), fill = list(n_spots = 0))
+
+  # Every donor x feature-status combination (including a completed-in
+  # zero-spot one), whether or not it survives the min_spots_per_sample
+  # filter below -- saved so a skipped/thinned comparison's sample
+  # composition can be checked later without rerunning anything.
+  sample_table <- spot_counts %>%
     mutate(retained = n_spots >= min_spots_per_sample) %>%
     arrange(sample)
-  
+
   write.csv(sample_table,
             file = paste0(comp_results_dir, "sample_filtering.csv"),
             row.names = F)
-  
-  # if EITHER classification is below the threshold, dump the whole sample
-  dump <- sample_table %>% 
-    filter(retained == F) %>% 
-    pull(sample) %>% 
+
+  # If EITHER feature status is below the threshold for a donor (now
+  # including a status with zero spots, thanks to complete() above), dump
+  # the whole donor -- see the note above spot_counts for why.
+  dump <- sample_table %>%
+    filter(retained == F) %>%
+    pull(sample) %>%
     unique()
-  
-  meta_comp <- sub@meta.data %>% 
-    dplyr::select(c(sample, guide$features[i], sex, age)) %>% 
+
+  meta_comp <- sub@meta.data %>%
+    dplyr::select(sample, all_of(guide$features[i]), sex, age) %>%
     distinct() %>%
-    filter(!(sample %in% dump)) %>% 
-    left_join(spot_counts, by = c("sample", guide$features[i])) %>% 
-    filter(n_spots > min_spots_per_sample)
-  
-  if (any(table(meta_comp$group) < min_samples_per_group)){
-    message(paste0("Skipping ", compartments$title[i], " -- fewer than ",
-                   min_samples_per_group, " samples per group have >= ",
+    filter(!(sample %in% dump)) %>%
+    left_join(spot_counts, by = c("sample", guide$features[i])) %>%
+    filter(n_spots >= min_spots_per_sample)
+
+  if (any(table(meta_comp[[guide$features[i]]]) < min_samples_per_group)){
+    message(paste0("Skipping ", guide$features[i], " in ", guide$tissues[i],
+                   " (", guide$groups[i], ") -- fewer than ",
+                   min_samples_per_group, " samples per feature status have >= ",
                    min_spots_per_sample, " spots."))
     next
   }
@@ -129,10 +154,14 @@ for (i in seq_len(nrow(guide))){
   # nothing for AggregateExpression()'s internal "_" -> "-" sanitization of
   # group.by values to touch, and colnames(exp) can be matched against it
   # directly.
+  # sex/age are kept in colData for reference but deliberately not in the
+  # design below -- sample is already a full per-donor blocking factor,
+  # so a fixed per-donor covariate like sex or age would be perfectly
+  # collinear with it (every one of a donor's pseudobulk rows shares the
+  # same sex/age), which would make the model matrix rank-deficient.
   meta_comp <- meta_comp %>%
     mutate(sample2 = paste0(sample, "_", !!sym(guide$features[i]))) %>%
     dplyr::select(-n_spots) %>%
-    mutate(age_scale = scale(age, center = T, scale = T)[,1]) %>% 
     dplyr::rename("feature" = guide$features[i])
   
   exp <- exp[, meta_comp$sample2, drop = F]
@@ -174,9 +203,13 @@ for (i in seq_len(nrow(guide))){
     write.csv(res,
               file = paste0(comp_results_dir, guide$groups[i], ".csv"))
     
+    # Coefficient name is "feature_TRUE_vs_FALSE" regardless of which
+    # feature (ptdp/pga) this iteration is on, since the design column
+    # was renamed to the generic "feature" above -- not "ptdp_TRUE_vs_FALSE"
+    # (which never matches resultsNames(dds), even on a ptdp iteration).
     suppressMessages({
       res_shrunk <- lfcShrink(dds,
-                              coef = "ptdp_TRUE_vs_FALSE",
+                              coef = "feature_TRUE_vs_FALSE",
                               type = "apeglm")
     })
     
@@ -184,7 +217,8 @@ for (i in seq_len(nrow(guide))){
               file = paste0(comp_results_dir, guide$groups[i], "_lfc_shrunk.csv"))
     
   }, error = function(e){
-    message(paste0("Skipping ", compartments$title[i], " -- DESeq2 pipeline failed: ",
+    message(paste0("Skipping ", guide$features[i], " in ", guide$tissues[i],
+                   " (", guide$groups[i], ") -- DESeq2 pipeline failed: ",
                    conditionMessage(e)))
   })
   
