@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --account b1042
 #SBATCH --partition genomics
-#SBATCH --job-name 18_full_integration
+#SBATCH --job-name 05_integration
 #SBATCH --nodes 1
 #SBATCH --ntasks-per-node 16
 #SBATCH --mem 48GB
