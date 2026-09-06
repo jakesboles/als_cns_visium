@@ -52,18 +52,22 @@ Iterate_PC_Loading_Plots(obj,
 obj[["Spatial"]] <- split(obj[["Spatial"]], f = obj@meta.data$code)
 
 obj <- IntegrateLayers(obj, 
-                     method = HarmonyIntegration, 
+                     method = CCAIntegration, 
                      assay = "Spatial", 
                      layers = "data", 
                      orig.reduction = "pca", 
-                     new.reduction = "harmony",
+                     new.reduction = "cca",
+                     k.anchor = 20,
+                     reference = which(Layers(obj, search = "data") %in% 
+                                         c("data.AN67-1", "data.JSB146-2", # two MCX
+                                           "data.JSB164-1", "data.JSB171-9")), # two SC
                      dims = 1:10)
 
 obj[["Spatial"]] <- JoinLayers(obj[["Spatial"]])
 
 obj <- RunUMAP(obj,
                umap.method = "uwot",
-               reduction = "harmony",
+               reduction = "cca",
                dims = 1:10,
                # nn.name = "RNA.nn",
                metric = "euclidean",
@@ -71,17 +75,17 @@ obj <- RunUMAP(obj,
                n.neighbors = 15L,
                # repulsion.strength = 0.5,
                # uwot.init = "random",
-               reduction.name = "harmony_umap",
+               reduction.name = "cca_umap",
                return.model = F)
 
 for (group in c("region", "tissue", "code", "group", "ptdp", "pga")){
   w <- if (group %in% c("code")) 15 else 11
   
   p <- DimPlot_scCustom(obj,
-                        reduction = "harmony_umap",
+                        reduction = "cca_umap",
                         group.by = group)
   ggsave(p,
-         filename = paste0(results_dir, group, "_dimplot.png"),
+         filename = paste0(results_dir, group, "_dimplot_cca.png"),
          units = "in", dpi = 600,
          height = 8, width = w)
 }
@@ -94,8 +98,8 @@ if (dir.exists(bpcells_data_dir)){
 write_matrix_dir(mat = obj[["Spatial"]]$data,
                  dir = bpcells_data_dir)
 
-saveRDS(obj[["harmony"]],
-        file = paste0(data_dir, "harmony.rds"))
+saveRDS(obj[["cca"]],
+        file = paste0(data_dir, "cca.rds"))
 
-saveRDS(obj[["harmony_umap"]],
-        file = paste0(data_dir, "harmony_umap.rds"))
+saveRDS(obj[["cca_umap"]],
+        file = paste0(data_dir, "cca_umap.rds"))
