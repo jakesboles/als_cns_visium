@@ -49,7 +49,7 @@ Iterate_PC_Loading_Plots(obj,
                          file_path = results_dir,
                          file_name = "pca_loadings")
 
-obj[["Spatial"]] <- split(obj[["Spatial"]], f = obj@meta.data$orig.ident)
+obj[["Spatial"]] <- split(obj[["Spatial"]], f = obj@meta.data$code)
 
 obj <- IntegrateLayers(obj, 
                      method = HarmonyIntegration, 
@@ -57,14 +57,14 @@ obj <- IntegrateLayers(obj,
                      layers = "data", 
                      orig.reduction = "pca", 
                      new.reduction = "harmony",
-                     dims = 1:15)
+                     dims = 1:10)
 
 obj[["Spatial"]] <- JoinLayers(obj[["Spatial"]])
 
 obj <- RunUMAP(obj,
                umap.method = "uwot",
                reduction = "harmony",
-               dims = 1:15,
+               dims = 1:10,
                # nn.name = "RNA.nn",
                metric = "euclidean",
                min.dist = 0.5,
