@@ -21,7 +21,7 @@ dir.create(data_dir,
 
 meta <- readRDS("data/02_qc/cns_metadata.rds")
 
-meta$code <- str_split_i(rownames(meta), "_", i = 2)
+meta$code <- str_split_i(rownames(meta), "_", i = 1)
 meta$batch <- str_split_i(meta$code, "-", i = 1)
 
 meta <- meta[c(1:11, 26)]
