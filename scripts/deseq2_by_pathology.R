@@ -182,7 +182,7 @@ for (i in seq_len(nrow(guide))){
                                   colData = meta_comp,
                                   design = ~ sample + feature) # change this as needed
     
-    keep <- rowSums(counts(dds) >= 10) >= 5 # change these cutoffs as needed
+    keep <- rowSums(counts(dds) >= 10) >= 10 # change these cutoffs as needed
     
     dds <- dds[keep, ]
     
