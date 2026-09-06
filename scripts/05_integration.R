@@ -74,8 +74,8 @@ obj <- RunUMAP(obj,
                reduction.name = "harmony_umap",
                return.model = F)
 
-for (group in c("region", "tissue", "orig.ident", "group", "ptdp")){
-  w <- if (group %in% c("orig.ident")) 15 else 11
+for (group in c("region", "tissue", "code", "group", "ptdp", "pga")){
+  w <- if (group %in% c("code")) 15 else 11
   
   p <- DimPlot_scCustom(obj,
                         reduction = "harmony_umap",
