@@ -27,6 +27,8 @@ obj <- Add_Mito_Ribo(obj,
 obj <- Add_Cell_Complexity(obj,
                            assay = "Spatial")
 
+saveRDS(obj@meta.data,
+        file = paste0(data_dir, "prefilter_metadata.rds"))
 # Set cutoffs ---------------------------------------
 
 samples <- unique(obj$sample_id)
