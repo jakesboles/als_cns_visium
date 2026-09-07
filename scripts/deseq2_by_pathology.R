@@ -51,21 +51,35 @@ obj <- obj %>%
 # pGA (poly-GA) is a dipeptide repeat protein specific to the C9orf72
 # hexanucleotide repeat expansion, so sALS donors (no C9orf72 mutation)
 # aren't expected to have pGA pathology to compare, and there's no sc_pga
-# Halo annotation category yet (see data/halo_annotations/features/).
+# Halo annotation category yet (see data/halo_annotations/features/). For
+# the same reason, the merged "both ALS subtypes together" rows below
+# only exist for ptdp, not pga.
+#
+# `groups` is a list-column (one or more group values per row) rather
+# than a plain character column, so the same guide table can express both
+# a single-group comparison (subset to exactly that group) and the merged
+# sALS+C9orf72 comparison (subset to either) with one filter expression
+# (group %in% guide$groups[[i]]) instead of two different code paths.
+# `group_label` is the plain-string version used for file/column naming,
+# since a list-column can't be pasted directly.
 
 guide <- tibble(
-  tissues = c("mcx", "sc", "mcx", "sc", "mcx"),
-  groups = c("sALS", "sALS", "C9orf72", "C9orf72", "C9orf72"),
-  features = c("ptdp", "ptdp", "ptdp", "ptdp", "pga")
+  tissues = c("mcx", "sc", "mcx", "sc", "mcx", "mcx", "sc"),
+  groups = list(c("sALS"), c("sALS"), c("C9orf72"), c("C9orf72"), c("C9orf72"),
+               c("sALS", "C9orf72"), c("sALS", "C9orf72")),
+  group_label = c("sALS", "sALS", "C9orf72", "C9orf72", "C9orf72",
+                  "ALS_merged", "ALS_merged"),
+  features = c("ptdp", "ptdp", "ptdp", "ptdp", "pga", "ptdp", "ptdp")
 ) %>%
-  # Must include `groups`, not just `features`/`tissues` -- ptdp/mcx and
-  # ptdp/sc each appear for two different groups above, and file is used
-  # for both the results subdirectory AND the flat dds.rds path below. If
-  # file collides across rows, the second row silently overwrites the
-  # first row's dds.rds and sample_filtering.csv (the per-group results
-  # CSVs were already fine, since those are separately named by
-  # guide$groups[i] within comp_results_dir).
-  mutate(file = paste0(features, "_", tissues, "_", groups))
+  # Must include `group_label`, not just `features`/`tissues` -- ptdp/mcx
+  # and ptdp/sc each appear for multiple rows above (single-group and
+  # merged), and file is used for both the results subdirectory AND the
+  # flat dds.rds path below. If file collides across rows, the
+  # later-processed row silently overwrites an earlier row's dds.rds and
+  # sample_filtering.csv (the per-comparison results CSVs were already
+  # fine, since those are separately named by guide$group_label[i] within
+  # comp_results_dir).
+  mutate(file = paste0(features, "_", tissues, "_", group_label))
 
 # A pseudobulk sample built from too few spots is mostly zero, which can
 # make every gene contain a zero in some sample -- DESeq2's default
@@ -80,10 +94,10 @@ min_samples_per_group <- 3 # change as needed
 
 for (i in seq_len(nrow(guide))){
   
-  message(paste0(guide$features[i], " in ", guide$tissues[i], " in ", guide$groups[i]))
-  
+  message(paste0(guide$features[i], " in ", guide$tissues[i], " in ", guide$group_label[i]))
+
   sub <- subset(obj,
-                tissue == guide$tissues[i] & group == guide$groups[i])
+                tissue == guide$tissues[i] & group %in% guide$groups[[i]])
   
   file <- guide$file[i]
   
@@ -141,7 +155,7 @@ for (i in seq_len(nrow(guide))){
 
   if (any(table(meta_comp[[guide$features[i]]]) < min_samples_per_group)){
     message(paste0("Skipping ", guide$features[i], " in ", guide$tissues[i],
-                   " (", guide$groups[i], ") -- fewer than ",
+                   " (", guide$group_label[i], ") -- fewer than ",
                    min_samples_per_group, " samples per feature status have >= ",
                    min_spots_per_sample, " spots."))
     next
@@ -201,7 +215,7 @@ for (i in seq_len(nrow(guide))){
     res <- as.data.frame(res)
     
     write.csv(res,
-              file = paste0(comp_results_dir, guide$groups[i], ".csv"))
+              file = paste0(comp_results_dir, guide$group_label[i], ".csv"))
     
     # Coefficient name is "feature_TRUE_vs_FALSE" regardless of which
     # feature (ptdp/pga) this iteration is on, since the design column
@@ -214,11 +228,11 @@ for (i in seq_len(nrow(guide))){
     })
     
     write.csv(res_shrunk,
-              file = paste0(comp_results_dir, guide$groups[i], "_lfc_shrunk.csv"))
-    
+              file = paste0(comp_results_dir, guide$group_label[i], "_lfc_shrunk.csv"))
+
   }, error = function(e){
     message(paste0("Skipping ", guide$features[i], " in ", guide$tissues[i],
-                   " (", guide$groups[i], ") -- DESeq2 pipeline failed: ",
+                   " (", guide$group_label[i], ") -- DESeq2 pipeline failed: ",
                    conditionMessage(e)))
   })
   
