@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import math
 import gc
 import pandas as pd
@@ -34,8 +35,24 @@ sample_ids = [
 "JSB171-2", "JSB171-3", "JSB171-4", "JSB171-5", "JSB171-6", "JSB171-7", "JSB171-8", "JSB171-9"
 ]
 
-# Define ST spot radius in pixels
-radius = 55
+# ST spot radius in pixels is read per-sample from Space Ranger's own
+# scalefactors_json.json (spot_diameter_fullres / 2) rather than hardcoded,
+# since it's derived by Space Ranger from that sample's own fiducial
+# markers and isn't guaranteed to be identical across scans/batches (this
+# project's cohort spans multiple CytAssist runs -- see master.xlsx's
+# cytassist_sn column). A previously hardcoded radius = 55 (the spot
+# diameter in *microns*, not pixels) undersized every spot's true pixel
+# footprint by a meaningful margin -- confirmed against a real
+# scalefactors_json.json, spot_diameter_fullres there was 120.34 (radius
+# ~60.17), not 110 (radius 55) -- which was silently excluding annotations
+# that fall in the outer ~9% of a spot's true radius from every
+# touches/contains check downstream (03b/03c's .intersects() calls).
+
+def get_spot_radius(sample):
+  path = f"{spaceranger_dir}{sample}/outs/spatial/scalefactors_json.json"
+  with open(path) as f:
+    scalefactors = json.load(f)
+  return scalefactors["spot_diameter_fullres"] / 2
 
 # The combined QC figure below stacks one panel per sample into a single
 # file; each panel's crop is downsampled by this factor before plotting so
@@ -65,6 +82,9 @@ for i, sample in enumerate(sample_ids):
   # Define output folder
   sample_dir = f"{data_dir}{sample}/"
   os.makedirs(sample_dir, exist_ok = True)
+
+  radius = get_spot_radius(sample)
+  print(f"  Spot radius: {radius:.2f} px")
 
   # Load Space Ranger coordinates, keeping only spots actually called as
   # over tissue -- carrying the rest along is dead weight in every step
