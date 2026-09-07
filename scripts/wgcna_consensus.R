@@ -1,7 +1,7 @@
 # Runs consensus hdWGCNA (co-expression modules found consistently across
 # all 4 major anatomical compartments -- mcx GM, mcx WM, sc GM, sc WM --
 # not fit on one pooled population) on 04_spot_annotation.R's spots,
-# reattaching 05_integration.R's already-fit Harmony embedding. Single
+# reattaching 05_integration.R's already-fit CCA embedding. Single
 # run covering all 4 compartments at once (no SLURM array), matching this
 # repo's own deseq2_by_compartment.R rather than the scRNAseq sibling
 # repo's per-cell-type array-job scripts (wgcna_single.R,
@@ -121,9 +121,9 @@ obj@images <- images
 obj <- NormalizeData(obj)
 obj <- FindVariableFeatures(obj)
 
-harmony <- readRDS("data/05_integration/harmony.rds")
-harmony@cell.embeddings <- harmony@cell.embeddings[rownames(meta_sub), ]
-obj[["harmony"]] <- harmony
+cca <- readRDS("data/05_integration/cca.rds")
+cca@cell.embeddings <- cca@cell.embeddings[rownames(meta_sub), ]
+obj[["cca"]] <- cca
 
 obj <- ScaleData(obj)
 
@@ -153,7 +153,7 @@ message2("Constructing metacells")
 obj <- MetacellsByGroups(
   seurat_obj = obj,
   group.by = c("code", "compartment", "dummy"),
-  reduction = "harmony",
+  reduction = "cca",
   k = 25, # change as needed
   max_shared = 10, # change as needed
   ident.group = "dummy"
@@ -272,7 +272,7 @@ maxrank <- max(lengths(gene_sets))
 obj <- AddModuleScore_UCell(obj, features = gene_sets, maxRank = maxrank)
 obj <- SmoothKNN(obj,
                  signature.names = paste0(names(gene_sets), "_UCell"),
-                 reduction = "harmony")
+                 reduction = "cca")
 
 scores <- obj@meta.data %>%
   dplyr::select(code, group, tissue, region, ptdp, pga, batch, age, sex, matches("_UCell_kNN$"))
