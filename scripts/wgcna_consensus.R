@@ -94,15 +94,31 @@ dir.create(results_dir, showWarnings = F, recursive = T)
 # Filter to the 4 anatomical compartments before touching raw counts at all -
 # See header note above.
 
-message2("Reading in metadata and filtering to GM/WM compartments")
+message2("Reading in metadata")
 
 meta <- readRDS("data/04_spot_annotation/metadata.rds")
-meta_sub <- meta %>%
-  filter(region %in% c("GM", "WM")) %>%
-  mutate(compartment = paste0(tissue, "_", region),
-         dummy = 1)
 
-compartments <- unique(meta_sub$compartment)
+message2("Reading in raw counts and CCA embedding")
+
+raw_mat <- open_matrix_dir("data/04_spot_annotation/bpcells_data")
+raw_mat <- raw_mat[, rownames(meta)]
+
+images <- readRDS("data/04_spot_annotation/images.rds")
+
+obj <- CreateSeuratObject(counts = raw_mat, meta.data = meta, assay = "Spatial")
+obj@images <- images
+
+cca <- readRDS("data/05_integration/cca.rds")
+cca@cell.embeddings <- cca@cell.embeddings[rownames(meta), ]
+obj[["cca"]] <- cca
+
+obj <- obj %>% 
+  subset(region %in% c("WM", "GM"))
+
+obj$dummy <- 1
+obj$compartment <- paste0(obj$tissue, "_", obj$region)
+
+compartments <- unique(obj$compartment)
 
 # Skip if any compartment is too sparse for stable metacell construction --
 # see header note above. Checked per compartment, not just on the combined
@@ -111,29 +127,15 @@ compartments <- unique(meta_sub$compartment)
 
 min_cells <- 200 # change as needed
 
-cell_counts <- table(meta_sub$compartment)
+cell_counts <- table(obj@meta.data$compartment)
 if (any(cell_counts < min_cells)){
   stop(paste0("At least one compartment has too few spots for stable ",
               "metacell construction (min_cells = ", min_cells, "): ",
               paste(names(cell_counts), cell_counts, sep = " = ", collapse = ", ")))
 }
 
-message2("Reading in raw counts and CCA embedding")
-
-raw_mat <- open_matrix_dir("data/04_spot_annotation/bpcells_data")
-raw_mat <- raw_mat[, rownames(meta_sub)]
-
-images <- readRDS("data/04_spot_annotation/images.rds")
-
-obj <- CreateSeuratObject(counts = raw_mat, meta.data = meta_sub, assay = "Spatial")
-obj@images <- images
-
 obj <- NormalizeData(obj)
 obj <- FindVariableFeatures(obj)
-
-cca <- readRDS("data/05_integration/cca.rds")
-cca@cell.embeddings <- cca@cell.embeddings[rownames(meta_sub), ]
-obj[["cca"]] <- cca
 
 obj <- ScaleData(obj)
 
