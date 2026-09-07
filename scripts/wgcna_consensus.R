@@ -32,10 +32,20 @@
 #   `tissue` plays there: the multi.group.by/multi_groups axis
 #   SetMultiExpr()/TestSoftPowersConsensus() build separate per-group
 #   networks across before finding their consensus.
-# - Real raw counts and the Harmony embedding come from this project's own
+# - Real raw counts and the CCA embedding come from this project's own
 #   04_spot_annotation.R (bpcells_data, metadata.rds) and
-#   05_integration.R (harmony.rds) -- this project's actual pipeline
-#   stages, not the scRNAseq repo's 06/17/18.
+#   05_integration.R (cca.rds) -- this project's actual pipeline
+#   stages, not the scRNAseq repo's 06/17/18. 05_integration.R found CCA
+#   integrated better than Harmony for this data, so that's what's
+#   reattached here for metacell construction (MetacellsByGroups()'s
+#   `reduction` below) -- but RunHarmonyMetacells() a bit further down is
+#   NOT a leftover: hdWGCNA has no CCA equivalent for that specific
+#   metacell-level correction step (every WGCNA script in the scRNAseq
+#   sibling repo calls it unconditionally too, regardless of what
+#   single-cell reduction was used upstream), and nothing downstream
+#   (SetMultiExpr() pulls raw expression, not a reduction) actually
+#   consumes its output, so it's effectively a required formality of
+#   hdWGCNA's own pipeline rather than a real Harmony-vs-CCA choice.
 # - This object's assay is "Spatial" throughout (this project's Visium
 #   assay name), never "RNA" (the scRNAseq repo's assay name) -- watch
 #   for this specifically when porting anything further from that repo.
@@ -108,7 +118,7 @@ if (any(cell_counts < min_cells)){
               paste(names(cell_counts), cell_counts, sep = " = ", collapse = ", ")))
 }
 
-message2("Reading in raw counts and Harmony embedding")
+message2("Reading in raw counts and CCA embedding")
 
 raw_mat <- open_matrix_dir("data/04_spot_annotation/bpcells_data")
 raw_mat <- raw_mat[, rownames(meta_sub)]
@@ -162,6 +172,10 @@ obj <- MetacellsByGroups(
 obj <- NormalizeMetacells(obj)
 obj <- ScaleMetacells(obj, features = VariableFeatures(obj))
 obj <- RunPCAMetacells(obj, features = VariableFeatures(obj))
+
+# Still Harmony despite the rest of this script being CCA -- not a
+# leftover, hdWGCNA has no CCA option for this metacell-level correction
+# step. See header note above.
 obj <- RunHarmonyMetacells(obj, group.by.vars = "code")
 
 obj <- SetMultiExpr(
