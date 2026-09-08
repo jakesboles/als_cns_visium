@@ -99,6 +99,9 @@ df %>%
         plot.title = element_text(size = 20, hjust = 0.5),
         strip.background = element_rect(fill = "white", color = "black"),
         strip.text = element_text(face = "bold", size = 20, color = "black"))
+ggsave(filename = paste0(results_dir, "/degs_stacked_bars.png"),
+       units = "in", dpi = 600,
+       height = 5, width = 4)
 
 # Fold-change scatter between any two DESeq2 comparisons --------------------
 # Modeled on als_cns_scrnaseq/r_scripts/deseq_viz2.R's plot_fc_scatter() --
