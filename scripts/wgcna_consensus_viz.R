@@ -82,7 +82,9 @@ scores <- scores %>%
                         levels = c("Control", "sALS", "C9orf72"),
                         labels = c("Control", "sALS", "C9orf72-ALS")),
          compartment = paste0(tissue, "_", region),
-         compartment = factor(compartment, levels = sort(unique(compartment))))
+         compartment = factor(compartment, 
+                              levels = sort(unique(compartment)),
+                              labels = sort(unique(compartment)) %>% str_replace_all("_", " ") %>% str_to))
 
 # One row per donor per compartment -- a donor with spots in more than one
 # compartment (e.g. both mcx and sc) still contributes separately to each,
@@ -146,6 +148,11 @@ ggsave(filename = paste0(results_dir, mois[i], "_expression_spot.png"),
        height = 3, width = 7)
 
 # Expression plots (pseudobulk) ----------------------------------------------
+
+# fit <- lmer(green_UCell_kNN ~ group * compartment + (1|sample),
+#           data = pb)
+# 
+# joint_tests(fit)
 
 pb %>%
   ggplot(aes(x = group,
