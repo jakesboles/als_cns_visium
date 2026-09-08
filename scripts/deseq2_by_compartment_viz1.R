@@ -1,7 +1,7 @@
 library(tidyverse)
 library(ggrepel)
 library(scCustomize)
-library(UpSetR)
+library(ComplexUpset)
 library(ggplot2)
 library(reshape2)
 library(paletteer)
@@ -186,47 +186,116 @@ plot_fc_scatter <- function(compartment_1, contrast_1, compartment_2, contrast_2
 # Upset plot of DEGs across all 8 sets ---------------------------------------
 # 4 compartments (mcx GM, mcx WM, sc GM, sc WM) x 2 contrasts (sALS vs
 # Control, C9orf72 vs Control) = 8 DEG sets, all pairwise/higher-order
-# overlaps shown. Modeled on als_cns_scrnaseq/r_scripts/deseq_viz2.R's
-# microglia upset plot, generalized from that script's 4 sets (2 tissues x
-# 2 groups) to this project's 8 (2 tissues x 2 anatomical compartments x 2
-# groups). Reuses `dirs`/`region` from the bar chart above instead of
-# re-deriving the compartment list a second time -- `region` there is
-# actually the compartment file name (e.g. "mcx_gm"), not this project's
-# usual GM/WM `region` column; kept as-is rather than renamed since it's
-# established by the bar chart code above it.
+# overlaps shown. Ported from als_cns_scrnaseq/r_scripts/deseq_viz2.R's
+# ComplexUpset-based microglia upset plot (file_paths -> missing-file check
+# -> per-set DEG lists -> intersect_df membership matrix -> upset() with a
+# custom intersection_matrix/theme), generalized from that script's 4 sets
+# (2 tissues x 2 groups) to this project's 8 (2 tissues x 2 anatomical
+# compartments x 2 groups).
 #
-# Uses UpSetR (already loaded above), not the sibling script's
-# ComplexUpset, since UpSetR is what this script already imports and no
-# per-intersection color queries were asked for here -- fromList() turns
-# the 8 named gene vectors directly into the binary membership matrix
-# upset() needs, with no manual indicator-column bookkeeping.
+# The sibling script's version also colors specific "shared" intersections
+# (a highlight_group fill + matching upset_query() calls on the matrix) --
+# deliberately dropped here rather than mechanically extended, since that
+# logic was a fully-specified AND/NOT condition across exactly 2 tissues x
+# 2 groups (4 sets), and there's no single obvious way to generalize it to
+# 4 compartments x 2 groups (8 sets): a literal extension (e.g. requiring
+# significance in all 4 compartments for one contrast) is a much stricter
+# condition than the original 2-tissue version and would likely highlight
+# almost nothing. Everything else about the sibling script's structure and
+# styling (labeller, matrix geom, theme) is kept as close to the original
+# as possible.
 
-contrasts <- c("sALS_vs_Control", "C9orf72_vs_Control")
-contrast_labels <- c(sALS_vs_Control = "sALS", C9orf72_vs_Control = "C9")
+file_paths <- c(
+  sALS_mcx_gm = paste0(results_dir, "/mcx_gm/sALS_vs_Control.csv"),
+  `C9-ALS_mcx_gm` = paste0(results_dir, "/mcx_gm/C9orf72_vs_Control.csv"),
+  sALS_mcx_wm = paste0(results_dir, "/mcx_wm/sALS_vs_Control.csv"),
+  `C9-ALS_mcx_wm` = paste0(results_dir, "/mcx_wm/C9orf72_vs_Control.csv"),
+  sALS_sc_gm = paste0(results_dir, "/sc_gm/sALS_vs_Control.csv"),
+  `C9-ALS_sc_gm` = paste0(results_dir, "/sc_gm/C9orf72_vs_Control.csv"),
+  sALS_sc_wm = paste0(results_dir, "/sc_wm/sALS_vs_Control.csv"),
+  `C9-ALS_sc_wm` = paste0(results_dir, "/sc_wm/C9orf72_vs_Control.csv")
+)
 
-degs_list <- list()
-
-for (i in seq_along(dirs)){
-  for (contrast in contrasts){
-    set_name <- paste0(region[i], "_", contrast_labels[[contrast]])
-
-    res <- read.csv(paste0(dirs[i], "/", contrast, ".csv"))
-
-    degs_list[[set_name]] <- get_degs(res,
-                                      pval_cutoff = p_thresh,
-                                      logfc_cutoff = lfc_thresh)
-  }
+missing <- file_paths[!file.exists(file_paths)]
+if (length(missing) > 0){
+  stop(paste0("Missing DESeq2 results file(s): ",
+              paste(missing, collapse = ", "),
+              " -- check whether deseq2_by_compartment.R's abundance filter ",
+              "skipped this compartment."))
 }
 
-png(filename = paste0(results_dir, "/degs_upset.png"),
-    units = "in", res = 600,
-    height = 7, width = 11)
+list_names <- names(file_paths)
 
-upset(fromList(degs_list),
-     nsets = length(degs_list),
-     order.by = "freq",
-     mainbar.y.label = "# DEGs",
-     sets.x.label = "Total DEGs",
-     text.scale = 1.3)
+list <- lapply(file_paths, read.csv)
+names(list) <- list_names
+
+# Same DEG definition (p_thresh/lfc_thresh, defined at the top of this
+# script) as the bar chart and fold-change scatter above, not the sibling
+# script's own hardcoded 0.05/log2(1.5) -- this script already
+# parameterizes both, so every plot it makes should stay in sync if either
+# threshold ever changes.
+for (i in seq_along(list)){
+  list[[i]] <- list[[i]] %>%
+    filter(padj < p_thresh &
+             abs(log2FoldChange) > lfc_thresh) %>%
+    pull(X)
+}
+
+genes <- unique(list_c(list))
+
+intersect_df <- data.frame(gene = genes)
+for (i in seq_along(list)){
+
+  col <- list_names[i]
+
+  intersect_df <- intersect_df %>%
+    mutate(x = if_else(gene %in% list[[i]], T, F)) %>%
+    dplyr::rename(!!sym(col) := "x")
+}
+
+png(file = paste0(results_dir, "/degs_upset.png"),
+    height = 7, width = 12,
+    units = "in", res = 600)
+
+upset(intersect_df, list_names,
+     set_sizes = F,
+     stripes = "white",
+     wrap = T,
+     encode_sets = F,
+     height_ratio = 0.9,
+     labeller = ggplot2::as_labeller(c(
+       "sALS_mcx_gm" = "sALS\nMotor cortex GM",
+       "C9-ALS_mcx_gm" = "C9orf72-ALS\nMotor cortex GM",
+       "sALS_mcx_wm" = "sALS\nMotor cortex WM",
+       "C9-ALS_mcx_wm" = "C9orf72-ALS\nMotor cortex WM",
+       "sALS_sc_gm" = "sALS\nSpinal cord GM",
+       "C9-ALS_sc_gm" = "C9orf72-ALS\nSpinal cord GM",
+       "sALS_sc_wm" = "sALS\nSpinal cord WM",
+       "C9-ALS_sc_wm" = "C9orf72-ALS\nSpinal cord WM"
+     )),
+     matrix = (intersection_matrix(
+       geom = geom_point(shape = 19, size = 10),
+       segment = geom_segment(linewidth = 1.5),
+       outline_color = list(active = "white", inactive = "white")
+     )),
+     base_annotations = list(
+       'Intersection size' = intersection_size(text = list(size = 0)) +
+         scale_y_continuous(expand = c(0, 0)) +
+         ylab("# DEGs")
+     ),
+     theme = upset_modify_themes(
+       list(
+         'Intersection size' = theme(axis.text = element_text(color = "black", size = 16),
+                                     axis.title = element_text(size = 20),
+                                     axis.ticks.y = element_line(),
+                                     panel.border = element_rect(color = "black", fill = "transparent"),
+                                     panel.grid = element_line(color = "gray70")),
+         'intersections_matrix' = theme(axis.text = element_text(color = "black", size = 16),
+                                        axis.title = element_blank())
+       )
+     )
+) +
+  ggtitle("DEGs by compartment and contrast") +
+  theme(plot.title = element_text(hjust = 0.5, size = 20, face = "plain"))
 
 dev.off()
