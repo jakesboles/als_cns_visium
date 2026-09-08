@@ -5,6 +5,7 @@ library(ComplexUpset)
 library(ggplot2)
 library(reshape2)
 library(paletteer)
+library(ggbeeswarm)
 
 setwd("/projects/b1169/boles/als_cns_visium")
 
@@ -156,6 +157,7 @@ plot_fc_scatter <- function(compartment_1, contrast_1, compartment_2, contrast_2
   # both), rather than always favoring whichever comparison happens to have
   # larger fold changes overall.
   label_df <- df %>%
+    filter(sig_group == "Both") %>%
     mutate(dist = sqrt(log2FoldChange_1^2 + log2FoldChange_2^2)) %>%
     slice_max(dist, n = label_n, with_ties = F)
 
@@ -163,15 +165,25 @@ plot_fc_scatter <- function(compartment_1, contrast_1, compartment_2, contrast_2
     geom_point() +
     geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
     geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
-    geom_text_repel(data = label_df,
+    geom_label_repel(data = label_df,
                     aes(label = X, color = sig_group),
-                    size = 3, show.legend = F, max.overlaps = Inf) +
+                    size = 2, show.legend = F, max.overlaps = Inf) +
     labs(x = paste0("log2FC (", label_1, ")"),
         y = paste0("log2FC (", label_2, ")"),
         color = "Significant in") +
-    theme_bw(base_size = 12) +
-    theme(axis.text = element_text(color = "black"))
+    theme_linedraw(base_size = 12) +
+    theme(axis.text = element_text(color = "black"),
+          plot.title = element_text(hjust = 0.5))
 }
+
+plot_fc_scatter("mcx_wm", "C9orf72_vs_Control", "sc_wm", "C9orf72_vs_Control",
+                label_1 = "Motor cortex", label_2 = "Spinal cord",
+                label_n = 30) + 
+  scale_color_manual(values = c("darkgreen", "gold3", "#0073C2")) + 
+  ggtitle("WM DEGs in C9orf72 vs controls")
+ggsave(filename = paste0(results_dir, "/wm_c9_br_vs_sc_multivolcano.png"),
+       units = "in", dpi = 600,
+       height = 5, width = 6)
 
 # Returns the ggplot object rather than saving it -- the specific pair of
 # comparisons (and label_n) varies by call, so there's no single sensible
@@ -274,7 +286,7 @@ upset(intersect_df, list_names,
        "C9-ALS_sc_wm" = "C9orf72-ALS\nSpinal cord WM"
      )),
      matrix = (intersection_matrix(
-       geom = geom_point(shape = 19, size = 10),
+       geom = geom_point(shape = 19, size = 5),
        segment = geom_segment(linewidth = 1.5),
        outline_color = list(active = "white", inactive = "white")
      )),
@@ -299,3 +311,74 @@ upset(intersect_df, list_names,
   theme(plot.title = element_text(hjust = 0.5, size = 20, face = "plain"))
 
 dev.off()
+
+# GSEA plots --------------------------------------------------------------
+
+# Brings in deseq2_gsea.R's output (results/deseq2_by_compartment/<compartment>/
+# <contrast>_GSEA.csv) in both tissues and both groups.
+# GSEA()'s own default pvalueCutoff already restricts what deseq2_gsea.R
+# saved to nominally significant pathways, so no additional significance
+# filtering is applied here beyond picking the top N per comparison.
+# "top_n" pathways are taken per comparison, then the union of those
+# across all 4 comparisons is plotted so the same pathway's behavior can
+# be compared across tissue/group even if it wasn't top-ranked in every
+# comparison.
+
+top_n <- 10 # change as needed
+
+gsea_files <- expand.grid(compartment = c("mcx_gm", "mcx_wm", "sc_gm", "sc_wm"),
+                          contrast = c("sALS_vs_Control", "C9orf72_vs_Control"),
+                          stringsAsFactors = F) %>%
+  mutate(path = paste0(results_dir, "/", compartment, "/", contrast,
+                       "_GSEA.csv"),
+         group = if_else(contrast == "sALS_vs_Control", "sALS", "C9orf72-ALS"))
+
+missing <- gsea_files$path[!file.exists(gsea_files$path)]
+if (length(missing) > 0){
+  stop(paste0("Missing GSEA results file(s) for ", celltype, ": ",
+              paste(missing, collapse = ", "),
+              " -- check whether deseq2_gsea.R has been run for this ",
+              "cell type/tissue/contrast."))
+}
+
+gsea_all <- gsea_files %>%
+  mutate(data = map(path, read.csv)) %>%
+  unnest(data)
+
+top_pathways <- gsea_all %>%
+  filter(compartment != "sc_gm" & 
+           setSize > 50) %>%
+  group_by(compartment, contrast) %>%
+  slice_max(NES, n = 5) %>%
+  ungroup() %>%
+  pull(ID) %>%
+  unique()
+
+plot_df <- gsea_all %>%
+  filter(ID %in% top_pathways)
+
+pathway_order <- plot_df %>%
+  group_by(ID) %>%
+  summarize(mean_abs_nes = mean(abs(NES))) %>%
+  arrange(mean_abs_nes) %>%
+  pull(ID)
+
+plot_df <- plot_df %>%
+  mutate(ID = factor(ID, levels = pathway_order))
+
+plot_df %>% 
+  mutate(compartment = factor(compartment,
+                              levels = c("mcx_wm", "mcx_gm", "sc_wm", "sc_gm"),
+                              labels = c("MCX WM", "MCX GM", "SC WM", "SC GM"))) %>%
+ggplot(aes(x = NES, y = ID)) +
+  geom_segment(aes(xend = 0, yend = ID)) +
+  geom_quasirandom(aes(color = compartment, shape = group), size = 3) +
+  geom_vline(xintercept = 0, color = "grey50") +
+  labs(x = "Normalized enrichment score", y = NULL,
+       color = "Compartment", shape = "Group",
+       title = "Top upregulated pathways") +
+  scale_shape_manual(values = c(19, 15)) +
+  scale_color_manual(values = c("gold", "goldenrod3", "dodgerblue2", "midnightblue")) +
+  theme_linedraw(base_size = 12) +
+  theme(axis.text = element_text(color = "black"),
+        plot.title = element_text(hjust = 0.5))
