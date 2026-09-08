@@ -61,6 +61,10 @@
 #   WM is the likeliest candidate) would otherwise produce degenerate
 #   metacells or fail deep inside TestSoftPowersConsensus()/
 #   ConstructNetwork() with a much less clear error.
+# - `scores` (module_scores_ucell.csv) now also keeps `sample` (donor id)
+#   alongside `code` (Visium section id) -- wgcna_consensus_analysis.R
+#   needs both to nest section under donor in its mixed model
+#   (1 | sample/code), not just code alone.
 
 suppressMessages({
   library(hdWGCNA)
@@ -291,7 +295,7 @@ obj <- SmoothKNN(obj,
                  reduction = "cca")
 
 scores <- obj@meta.data %>%
-  dplyr::select(code, group, tissue, region, ptdp, pga, batch, age, sex, matches("_UCell_kNN$"))
+  dplyr::select(code, sample, group, tissue, region, ptdp, pga, batch, age, sex, matches("_UCell_kNN$"))
 
 write.csv(scores,
           file = paste0(results_dir, "module_scores_ucell.csv"),
