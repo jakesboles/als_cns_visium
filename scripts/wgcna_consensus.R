@@ -299,7 +299,7 @@ scores <- obj@meta.data %>%
 
 write.csv(scores,
           file = paste0(results_dir, "module_scores_ucell.csv"),
-          row.names = F)
+          row.names = T)
 
 # Harmonized module eigengenes -----------------------------------------------
 
