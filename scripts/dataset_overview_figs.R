@@ -70,7 +70,7 @@ meta %>%
              ncol = 1,
              scales = "free") + 
   geom_violin(aes(fill = group)) +
-  scale_fill_manual(values = c("#b8b0a8", "#CC00FF", "#0CAA00")) + 
+  scale_fill_manual(values = c("#b8b0a8", "#0CAA00", "#CC00FF")) + 
   labs(y = "# UMIs per spot") +
   scale_y_log10() + 
   theme
@@ -87,7 +87,7 @@ meta %>%
              ncol = 1,
              scales = "free") + 
   geom_violin(aes(fill = group)) +
-  scale_fill_manual(values = c("#b8b0a8", "#CC00FF", "#0CAA00")) + 
+  scale_fill_manual(values = c("#b8b0a8", "#0CAA00", "#CC00FF")) + 
   labs(y = "# genes per spot") +
   scale_y_log10() + 
   theme
@@ -104,7 +104,7 @@ meta %>%
              ncol = 1,
              scales = "free") + 
   geom_violin(aes(fill = group)) +
-  scale_fill_manual(values = c("#b8b0a8", "#CC00FF", "#0CAA00")) + 
+  scale_fill_manual(values = c("#b8b0a8", "#0CAA00", "#CC00FF")) + 
   labs(y = "% mitochondrial genes per spot") +
   theme
 ggsave(filename = paste0(plots_dir, "mito.png"),
