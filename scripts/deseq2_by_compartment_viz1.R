@@ -82,7 +82,7 @@ df %>%
            stat = "identity",
            color = "black",
            linewidth = 0.4) + 
-  scale_fill_manual(values = c("chartreuse3", "magenta3", "darkslategrey")) +
+  scale_fill_manual(values = c("#0CAA00", "#CC00FF", "darkslategrey")) +
   scale_y_continuous(expand = c(0, 0)) +
   scale_x_discrete(
     labels = function(x) str_replace_all(x, "_", " ") %>% str_to_upper()
