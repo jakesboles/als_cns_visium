@@ -84,7 +84,7 @@ scores <- scores %>%
          compartment = paste0(tissue, "_", region),
          compartment = factor(compartment, 
                               levels = sort(unique(compartment)),
-                              labels = sort(unique(compartment)) %>% str_replace_all("_", " ") %>% str_to))
+                              labels = sort(unique(compartment)) %>% str_replace_all("_", " ") %>% str_to_upper()))
 
 # One row per donor per compartment -- a donor with spots in more than one
 # compartment (e.g. both mcx and sc) still contributes separately to each,
@@ -211,15 +211,8 @@ obj$compartment <- paste0(obj$tissue, "_", obj$region)
 
 obj <- NormalizeData(obj)
 
-# Reattach the UCell module scores wgcna_consensus.R already computed on
-# this exact object, rather than re-running AddModuleScore_UCell()/
-# SmoothKNN() a second time just to plot them. module_scores_ucell.csv was
-# written with row.names = T (real spot barcodes), so AddMetaData() lines
-# these back up against obj@meta.data automatically.
-scores_for_obj <- read.csv(paste0(results_dir, "module_scores_ucell.csv"),
-                           row.names = 1)
-
-obj <- AddMetaData(obj, scores_for_obj %>% dplyr::select(matches("_UCell_kNN$")))
+obj <- AddMetaData(obj,
+                   scores)
 
 # Spatial FeaturePlots --------------------------------------------------------
 # Two representative sections -- the same AN67-7 (motor cortex)/AN72-4
@@ -237,24 +230,17 @@ obj <- AddMetaData(obj, scores_for_obj %>% dplyr::select(matches("_UCell_kNN$"))
 # embedding -- not meaningful for spot data with real physical
 # coordinates).
 
-example_images <- c("AN67.7", "AN72.4")
+example_images <- c("JSB146.4", "AN72.8", "AN67.7", "AN72.4")
 
-example_module <- mois[1]
+example_module <- "yellow"
 
-SpatialFeaturePlot_scCustom(obj,
-                            images = example_images,
-                            features = paste0(example_module, "_UCell_kNN"),
-                            colors_use = viridis_inferno_light_high,
-                            image.alpha = 0)
-
-top_hub_gene <- modules %>%
-  filter(color == example_module) %>%
-  arrange(desc(!!sym(paste0("kME_", example_module)))) %>%
-  slice_head(n = 1) %>%
-  pull(gene_name)
-
-SpatialFeaturePlot_scCustom(obj,
-                            images = example_images,
-                            features = top_hub_gene,
-                            colors_use = viridis_inferno_light_high,
-                            image.alpha = 0)
+SpatialFeaturePlot(obj,
+                   images = example_images,
+                   features = paste0(example_module, "_UCell_kNN"),
+                   # colors_use = viridis_inferno_light_high,
+                   image.alpha = 0,
+                   pt.size = 3,
+                   ncol = 2)
+ggsave(filename = paste0(results_dir, "yellow_spatial_expression.png"),
+       units = "in", dpi = 600,
+       height = 8, width = 8)
