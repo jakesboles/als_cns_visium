@@ -1,6 +1,6 @@
-/gpfs/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/CNS_Consensus4.rds,/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Oligodendrocyte/Oligodendrocyte.rds,spatial,Oligodendrocyte,spatial,sc
-/gpfs/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/CNS_Consensus4.rds,/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Astrocyte/Astrocyte.rds,spatial,Astrocyte,spatial,sc
-/gpfs/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/CNS_Consensus4.rds,/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Microglia/Microglia.rds,spatial,Microglia,spatial,sc
-/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Oligodendrocyte/Oligodendrocyte.rds,/gpfs/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/CNS_Consensus4.rds,Oligodendrocyte,spatial,sc,spatial
-/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Astrocyte/Astrocyte.rds,/gpfs/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/CNS_Consensus4.rds,Astrocyte,spatial,sc,spatial
-/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Microglia/Microglia.rds,/gpfs/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/CNS_Consensus4.rds,Microglia,spatial,sc,spatial
+/projects/b1169/boles/als_cns_visium/data/wgcna_consensus/wgcna_experiment.rds,/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Oligodendrocyte/Oligodendrocyte.rds,spatial,Oligodendrocyte,spatial,sc
+/projects/b1169/boles/als_cns_visium/data/wgcna_consensus/wgcna_experiment.rds,/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Astrocyte/Astrocyte.rds,spatial,Astrocyte,spatial,sc
+/projects/b1169/boles/als_cns_visium/data/wgcna_consensus/wgcna_experiment.rds,/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Microglia/Microglia.rds,spatial,Microglia,spatial,sc
+/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Oligodendrocyte/Oligodendrocyte.rds,/projects/b1169/boles/als_cns_visium/data/wgcna_consensus/wgcna_experiment.rds,Oligodendrocyte,spatial,sc,spatial
+/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Astrocyte/Astrocyte.rds,/projects/b1169/boles/als_cns_visium/data/wgcna_consensus/wgcna_experiment.rds,Astrocyte,spatial,sc,spatial
+/gpfs/projects/b1169/thomas/als_multitissue/hdWGCNA/Consensus_jsb/Microglia/Microglia.rds,/projects/b1169/boles/als_cns_visium/data/wgcna_consensus/wgcna_experiment.rds,Microglia,spatial,sc,spatial
