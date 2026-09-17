@@ -2,7 +2,7 @@
 
 #SBATCH --job-name=module_preservation
 #SBATCH --array=1-6
-#SBATCH --output=/projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/module_preservation/logs/%x_%A_%a.log
+#SBATCH --output=/projects/b1169/boles/als_cns_visium/logs/%x_%A_%a.log
 #SBATCH --time=48:00:00
 #SBATCH --mem=300G
 #SBATCH --nodes=1
@@ -10,11 +10,11 @@
 #SBATCH --account=b1169
 #SBATCH --partition=b1169
 
-cd /projects/b1169/thomas/als_multitissue/Visium/hdWGCNA/CNS_Consensus/module_preservation
+cd /projects/b1169/boles/als_cns_visium
 
 module load R/4.4.0
 
-PARAMS_FILE="module_preservation_params.txt"
+PARAMS_FILE="/projects/b1169/boles/als_cns_visium/jobs/wgcna_module_preservation_with_sc_params.txt.txt"
 
 # this is for the one that failed for no reason
 PARAM1=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f1 -d,)
