@@ -13,10 +13,12 @@
 cd /projects/b1169/boles/als_cns_visium
 
 module load R/4.4.0
+module load hdf5/1.14.1-2-gcc-12.3.0
 
-PARAMS_FILE="/projects/b1169/boles/als_cns_visium/jobs/wgcna_module_preservation_with_sc_params.txt.txt"
+# Filename typo fixed (was "..._params.txt.txt", which doesn't exist) --
+# the real file has a single .txt extension.
+PARAMS_FILE="/projects/b1169/boles/als_cns_visium/jobs/wgcna_module_preservation_with_sc_params.txt"
 
-# this is for the one that failed for no reason
 PARAM1=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f1 -d,)
 PARAM2=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f2 -d,)
 NAME1=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f3 -d,)
@@ -24,6 +26,8 @@ NAME2=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f4 -d,)
 TYPE1=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f5 -d,)
 TYPE2=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $PARAMS_FILE | cut -f6 -d,)
 
-echo "Assessing preservation of modules from ${PARAM1} in ${PARAM2}"
+echo "Assessing preservation of modules from ${NAME1} in ${NAME2}"
 
-Rscript module_preservation_analysis.R "${PARAM1}" "${PARAM2}" "${NAME1}" "${NAME2}" "${TYPE1}" "${TYPE2}"
+# Was "module_preservation_analysis.R", a filename that doesn't exist in
+# this repo -- the actual script this job runs.
+Rscript /projects/b1169/boles/als_cns_visium/scripts/wgcna_module_preservation_with_scrna.R "${PARAM1}" "${PARAM2}" "${NAME1}" "${NAME2}" "${TYPE1}" "${TYPE2}"
