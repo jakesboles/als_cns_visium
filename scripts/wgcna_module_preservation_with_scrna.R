@@ -77,16 +77,58 @@
 #   this version) that was pure noise once the current design is in
 #   place.
 #
+# The `type == "sc"` branch was rewritten again after this: the scRNAseq
+# per-cell-type objects are BPCells-backed too, not whole readRDS()able
+# Seurat objects, so that branch now reconstructs from
+# als_cns_scrnaseq/r_scripts/wgcna_consensus_cns.R's own known save
+# locations (data/18_full_integration/brain_sc/{metadata.rds,harmony.rds}
+# + data/06_obj_reassembly/bpcells, assay = "RNA", group.by =
+# "cell_type3") the same way the spatial branch reconstructs from this
+# repo's own -- verified directly against that script's current source,
+# not guessed.
+#
+# Crash-proofing pass (all three items below the user's own explicit ask,
+# after two rounds of real bugs found by review against the source):
+# - `meta_sub <- meta[meta$cell_type3 == "Microglia", ]` was hardcoded,
+#   ignoring the `name` argument entirely -- harmless only by coincidence
+#   while every params.txt row happens to be Microglia. Fixed to
+#   `meta$cell_type3 == name`, with an nrow() == 0 check right after so a
+#   typo'd/mismatched `name` (e.g. wrong capitalization against
+#   wgcna_consensus_cns.R's subclustering_targets) fails immediately with
+#   a clear message instead of propagating an empty object deep into
+#   metacell construction.
+# - `require_file()` wraps every external file path (both branches)
+#   before it's read, so a missing/typo'd path in params.txt or a moved
+#   upstream file fails in the first second of the job, not after
+#   sinking cluster time into BPCells loading, metacell construction, or
+#   (worst case) the 10000-permutation NetRep test itself.
+# - TOM-file portability: confirmed directly against hdWGCNA's own
+#   source (ConstructNetwork.R: "append working directory to the TOM
+#   file so it has the full path" -- `net$TOMFiles <- paste0(getwd(),
+#   '/', renamed)`) that TOM file references are baked in as ABSOLUTE
+#   paths at build time, not resolved relative to whatever working
+#   directory a later script reading them happens to use. So there is
+#   NO cwd-matching risk here, and no setwd() juggling is needed or
+#   would help -- an earlier review of this script flagged this as an
+#   open risk before checking the actual source; that flag is retracted.
+#   The real, remaining risk is a TOM file having been deleted/moved
+#   since its network was built, which IS checked for below (pre-flight
+#   file.exists() on both objects' GetNetworkData()$TOMFiles, before the
+#   expensive ModulePreservationNetRep() call) rather than left to surface
+#   as a generic "file not found" partway through that call.
+# - A pre-flight gene-overlap check (reference's non-grey module genes
+#   vs. query's available genes) also runs before
+#   ModulePreservationNetRep() -- a near-zero overlap (e.g. a gene-symbol
+#   formatting mismatch between the two objects) would otherwise likely
+#   still run to completion but produce a degenerate/meaningless result
+#   rather than an obvious error, which is worse than a crash.
+#
 # NOTE: this session has no cluster access, real WGCNA objects, or R
 # interpreter -- every line below is a careful read/reasoning-based
-# rewrite of the earlier version plus wgcna_consensus.R's own documented
-# save/reconstruction recipe, not something that's been executed. One
-# real unknown: the scRNAseq side's actual assay name isn't verified here
-# (SetDatExpr() is left to use that object's own DefaultAssay() for the
-# `type == "sc"` branch, rather than guessing "RNA") -- if that's wrong,
-# pass assay explicitly in that branch once you can check the object
-# itself. Sanity-check the whole script on the cluster before treating it
-# as final.
+# rewrite, cross-checked against wgcna_consensus.R's, wgcna_consensus_cns.R's,
+# and hdWGCNA's own source where noted above, not something that's been
+# executed. Sanity-check the whole script on the cluster before treating
+# it as final.
 
 suppressMessages({
   library(hdWGCNA)
@@ -115,6 +157,19 @@ name2 <- commandArgs(trailingOnly = T)[4]
 type1 <- commandArgs(trailingOnly = T)[5]
 type2 <- commandArgs(trailingOnly = T)[6]
 
+# Fail immediately on a missing/typo'd path rather than however far into
+# the run readRDS()/open_matrix_dir() would otherwise get before erroring
+# -- see header note above.
+require_file <- function(path){
+  if (!file.exists(path)){
+    stop(paste0("Missing file: ", path, " -- check this path in ",
+                "jobs/wgcna_module_preservation_with_sc_params.txt (or the ",
+                "upstream script that should have produced it) before ",
+                "resubmitting."))
+  }
+  path
+}
+
 # Load + prepare one side of the comparison -----------------------------
 # `type` is this argument's data modality ("spatial" = this project's own
 # Visium consensus network, "sc" = a pre-built scRNAseq per-cell-type
@@ -134,17 +189,17 @@ load_wgcna_obj <- function(file, type, name){
     # the hdWGCNA @misc entry, not a whole Seurat object. Rebuild the
     # rest from this project's own known save locations (see header note
     # above) and graft the experiment back in.
-    meta <- readRDS("data/04_spot_annotation/metadata.rds")
+    meta <- readRDS(require_file("data/04_spot_annotation/metadata.rds"))
 
-    raw_mat <- open_matrix_dir("data/04_spot_annotation/bpcells_data")
+    raw_mat <- open_matrix_dir(require_file("data/04_spot_annotation/bpcells_data"))
     raw_mat <- raw_mat[, rownames(meta)]
 
-    images <- readRDS("data/04_spot_annotation/images.rds")
+    images <- readRDS(require_file("data/04_spot_annotation/images.rds"))
 
     obj <- CreateSeuratObject(counts = raw_mat, meta.data = meta, assay = "Spatial")
     obj@images <- images
 
-    cca <- readRDS("data/05_integration/cca.rds")
+    cca <- readRDS(require_file("data/05_integration/cca.rds"))
     cca@cell.embeddings <- cca@cell.embeddings[rownames(meta), ]
     obj[["cca"]] <- cca
 
@@ -160,7 +215,7 @@ load_wgcna_obj <- function(file, type, name){
     # call).
     obj[["Spatial"]]$data <- as(obj[["Spatial"]]$data, "dgCMatrix")
 
-    obj@misc[["wgcna_consensus"]] <- readRDS(file)
+    obj@misc[["wgcna_consensus"]] <- readRDS(require_file(file))
     obj <- SetActiveWGCNA(obj, "wgcna_consensus")
 
     # Every spot is one group here -- there's no cell-type axis on the
@@ -179,29 +234,51 @@ load_wgcna_obj <- function(file, type, name){
 
   } else if (type == "sc"){
 
-    meta <- readRDS("/projects/b1169/boles/als_cns_scrnaseq/data/18_full_integration/brain_sc/metadata.rds")
-    meta_sub <- meta[meta$cell_type3 == "Microglia", ]
-    
-    raw_mat <- open_matrix_dir("/projects/b1169/boles/als_cns_scrnaseq/data/06_obj_reassembly/bpcells")
+    # Mirrors als_cns_scrnaseq/r_scripts/wgcna_consensus_cns.R's own
+    # loading recipe for the target cell type -- same paths, same
+    # assay ("RNA", not "Spatial"), same cell_type3 column, verified
+    # against that script's current source (see header note above).
+    meta <- readRDS(require_file("/projects/b1169/boles/als_cns_scrnaseq/data/18_full_integration/brain_sc/metadata.rds"))
+
+    # `name` is this side's cell type (e.g. "Microglia"), matching
+    # whichever of wgcna_consensus_cns.R's subclustering_targets this
+    # comparison is against -- NOT hardcoded, so this branch works for
+    # any cell type params.txt names, not just Microglia. Only Microglia
+    # is actually run right now (per params.txt), but nothing here
+    # assumes that.
+    meta_sub <- meta[meta$cell_type3 == name, ]
+
+    if (nrow(meta_sub) == 0){
+      stop(paste0("No cells found with cell_type3 == \"", name, "\" in ",
+                  "data/18_full_integration/brain_sc/metadata.rds -- check ",
+                  "that the name column in jobs/",
+                  "wgcna_module_preservation_with_sc_params.txt matches ",
+                  "wgcna_consensus_cns.R's subclustering_targets exactly ",
+                  "(case-sensitive)."))
+    }
+
+    raw_mat <- open_matrix_dir(require_file("/projects/b1169/boles/als_cns_scrnaseq/data/06_obj_reassembly/bpcells"))
     raw_mat <- raw_mat[, rownames(meta_sub)]
-    
+
     obj <- CreateSeuratObject(counts = raw_mat, meta.data = meta_sub, assay = "RNA")
-    
+
     obj <- NormalizeData(obj)
 
     obj[["RNA"]]$data <- as(obj[["RNA"]]$data, "dgCMatrix")
-    
-    harmony <- readRDS("/projects/b1169/boles/als_cns_scrnaseq/data/18_full_integration/brain_sc/harmony.rds")
+
+    harmony <- readRDS(require_file("/projects/b1169/boles/als_cns_scrnaseq/data/18_full_integration/brain_sc/harmony.rds"))
     harmony@cell.embeddings <- harmony@cell.embeddings[rownames(meta_sub), ]
     obj[["harmony"]] <- harmony
-    
-    obj@misc[["wgcna_consensus"]] <- readRDS(file)
+
+    obj@misc[["wgcna_consensus"]] <- readRDS(require_file(file))
     obj <- SetActiveWGCNA(obj, "wgcna_consensus")
 
     obj <- SetDatExpr(obj,
                       group_name = name,
                       group.by = "cell_type3",
-                      use_metacells = T)
+                      use_metacells = T,
+                      assay = "RNA",
+                      layer = "data")
 
   } else {
     stop(paste0("Unrecognized type \"", type, "\" -- expected \"spatial\" or \"sc\"."))
@@ -226,6 +303,53 @@ obj1@misc$active_wgcna <- "ref"
 active2 <- obj2@misc$active_wgcna
 names(obj2@misc)[names(obj2@misc) == active2] <- "test"
 obj2@misc$active_wgcna <- "test"
+
+# Pre-flight checks -- both catch failures in seconds rather than after
+# sinking cluster time into the 10000-permutation NetRep test below (see
+# header note above).
+
+# TOM file references are absolute paths baked in at build time
+# (confirmed against hdWGCNA's own ConstructNetwork.R -- see header
+# note), so this isn't a cwd/portability check, just a "does the file
+# still exist" one -- it would have been deleted or moved, not simply
+# unreachable from this script's own working directory.
+tom_ref <- GetNetworkData(obj1, "ref")$TOMFiles
+tom_test <- GetNetworkData(obj2, "test")$TOMFiles
+
+if (!all(file.exists(tom_ref))){
+  stop(paste0("Reference (", name1, ") TOM file(s) not found: ",
+              paste(tom_ref[!file.exists(tom_ref)], collapse = ", "),
+              " -- the file may have been moved or deleted since this ",
+              "network was built."))
+}
+if (!all(file.exists(tom_test))){
+  stop(paste0("Query (", name2, ") TOM file(s) not found: ",
+              paste(tom_test[!file.exists(tom_test)], collapse = ", "),
+              " -- the file may have been moved or deleted since this ",
+              "network was built."))
+}
+
+# A near-zero gene overlap between the reference's modules and the
+# query's available genes (e.g. a gene-symbol formatting mismatch
+# between the spatial and scRNAseq objects) would otherwise likely still
+# run to completion inside ModulePreservationNetRep() rather than error,
+# just on a handful of genes -- a silently degenerate result is worse
+# than a crash here, so check explicitly instead.
+ref_genes <- GetModules(obj1, "ref") %>%
+  dplyr::filter(module != "grey") %>%
+  dplyr::pull(gene_name)
+query_genes <- colnames(GetDatExpr(obj2, "test"))
+
+n_overlap <- length(intersect(ref_genes, query_genes))
+min_overlap_genes <- 10 # change as needed
+
+if (n_overlap < min_overlap_genes){
+  stop(paste0("Only ", n_overlap, " gene(s) overlap between ", name1,
+              "'s modules and ", name2, "'s available genes (minimum ",
+              min_overlap_genes, ") -- check gene symbol formatting/",
+              "capitalization matches between the two objects before ",
+              "rerunning."))
+}
 
 # 2 is the query object, 1 is the reference: module preservation is
 # assessed for the reference's (obj1's) modules as tested against the

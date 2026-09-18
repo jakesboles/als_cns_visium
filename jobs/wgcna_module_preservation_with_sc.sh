@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=module_preservation
-#SBATCH --array=1-6
+#SBATCH --array=1-2
 #SBATCH --output=/projects/b1169/boles/als_cns_visium/logs/%x_%A_%a.log
 #SBATCH --time=48:00:00
 #SBATCH --mem=300G
@@ -9,6 +9,11 @@
 #SBATCH --ntasks-per-node=16
 #SBATCH --account=b1169
 #SBATCH --partition=b1169
+
+# --array matches jobs/wgcna_module_preservation_with_sc_params.txt's
+# current 2 rows (Microglia, both directions) -- widen back to 1-6 (and
+# add the Oligodendrocyte/Astrocyte rows back to that file) if/when this
+# expands beyond Microglia.
 
 cd /projects/b1169/boles/als_cns_visium
 
