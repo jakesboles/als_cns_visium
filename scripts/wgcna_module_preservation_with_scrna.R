@@ -179,14 +179,26 @@ load_wgcna_obj <- function(file, type, name){
 
   } else if (type == "sc"){
 
-    # Pre-built whole Seurat object from the sister scRNAseq WGCNA run --
-    # already has its own hdWGCNA experiment, metacells, and
-    # PredictedCellType column; nothing to reconstruct.
-    obj <- readRDS(file)
+    meta <- readRDS("/projects/b1169/boles/als_cns_scrnaseq/data/18_full_integration/brain_sc/metadata.rds")
+    meta_sub <- meta[meta$cell_type3 == "Microglia", ]
+    
+    raw_mat <- open_matrix_dir("/projects/b1169/boles/als_cns_scrnaseq/data/06_obj_reassembly/bpcells")
+    raw_mat <- raw_mat[, rownames(meta_sub)]
+    
+    obj <- CreateSeuratObject(counts = raw_mat, meta.data = meta_sub, assay = "RNA")
+    obj <- NormalizeData(obj)
+    obj <- FindVariableFeatures(obj)
+    
+    harmony <- readRDS("/projects/b1169/boles/als_cns_scrnaseq/data/18_full_integration/brain_sc/harmony.rds")
+    harmony@cell.embeddings <- harmony@cell.embeddings[rownames(meta_sub), ]
+    obj[["harmony"]] <- harmony
+    
+    obj@misc[["wgcna_consensus"]] <- readRDS(file)
+    obj <- SetActiveWGCNA(obj, "wgcna_consensus")
 
     obj <- SetDatExpr(obj,
                       group_name = name,
-                      group.by = "PredictedCellType",
+                      group.by = "cell_type3",
                       use_metacells = T)
 
   } else {
