@@ -74,7 +74,7 @@ results_dir <- "results/wgcna_consensus/"
 
 message("Reading in module UCell scores")
 
-scores <- read.csv(paste0(results_dir, "module_scores_ucell.csv"))
+scores <- read.csv(paste0(results_dir, "module_scores_ucell_2pct.csv"))
 
 scores <- scores %>%
   mutate(compartment = paste0(tissue, "_", region),
@@ -112,7 +112,7 @@ for (i in seq_along(cols)){
     })
 
     write.csv(as.data.frame(jt),
-              file = paste0(results_dir, color[i], "_lmer_joint_tests.csv"),
+              file = paste0(results_dir, color[i], "_lmer_joint_tests_2pct.csv"),
               row.names = F)
 
     stats[[i]] <- multcomp::cld(emm[[i]], Letters = letters) %>%
@@ -129,14 +129,14 @@ for (i in seq_along(cols)){
 message("Saving model objects and comparison table")
 
 saveRDS(fit,
-        file = paste0(data_dir, "lmer_fits.rds"))
+        file = paste0(data_dir, "lmer_fits_2pct.rds"))
 saveRDS(emm,
-        file = paste0(data_dir, "lmer_emm.rds"))
+        file = paste0(data_dir, "lmer_emm_2pct.rds"))
 
 stats_df <- list_rbind(compact(stats))
 
 write.csv(stats_df,
-          file = paste0(results_dir, "lmer_group_comparisons.csv"),
+          file = paste0(results_dir, "lmer_group_comparisons_2pct.csv"),
           row.names = F)
 
 message("Plotting module expression by group and compartment")
@@ -164,7 +164,7 @@ p <- stats_df %>%
         strip.text = element_text(color = "white", face = "bold"),
         strip.background = element_rect(fill = "black"))
 ggsave(p,
-       filename = paste0(results_dir, "lmer_stats_overview.png"),
+       filename = paste0(results_dir, "lmer_stats_overview_2pct.png"),
        units = "in", dpi = 600,
        height = length(cols) * 0.9,
        width = length(cols) * 1.2)
@@ -188,7 +188,7 @@ t2g <- rbind(go_t2g, m_t2g)
 
 message("Reading in modules")
 
-modules <- read.csv(paste0(results_dir, "modules.csv"))
+modules <- read.csv(paste0(results_dir, "modules_2pct.csv"))
 
 background <- modules$gene_name %>% unique()
 
@@ -213,7 +213,7 @@ for (j in seq_along(module_names)){
                    universe = background)
 
     write.csv(as.data.frame(em@result),
-              file = paste0(results_dir, module_names[j], "_ora.csv"))
+              file = paste0(results_dir, module_names[j], "_ora_2pct.csv"))
 
     if (nrow(em@result) > 0 && min(em@result$p.adjust) < 0.05){
       p <- dotplot(em,
@@ -222,7 +222,7 @@ for (j in seq_along(module_names)){
                    color = "p.adjust",
                    size = "GeneRatio")
       ggsave(p,
-             filename = paste0(results_dir, module_names[j], "_ora.png"),
+             filename = paste0(results_dir, module_names[j], "_ora_2pct.png"),
              units = "in", dpi = 600,
              height = 10, width = 8)
     }

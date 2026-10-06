@@ -75,7 +75,7 @@ setwd("/projects/b1169/boles/als_cns_visium")
 results_dir <- "results/wgcna_consensus/"
 data_dir <- "data/wgcna_consensus/"
 
-scores <- read.csv(paste0(results_dir, "module_scores_ucell.csv"))
+scores <- read.csv(paste0(results_dir, "module_scores_ucell_2pct.csv"))
 
 scores <- scores %>%
   mutate(group = factor(group,
@@ -96,7 +96,7 @@ pb <- scores %>%
   mutate(across(where(is.numeric), median)) %>%
   distinct(sample, compartment, .keep_all = T)
 
-modules <- read.csv(paste0(results_dir, "modules.csv"))
+modules <- read.csv(paste0(results_dir, "modules_2pct.csv"))
 
 mois <- setdiff(unique(modules$color), "grey") # change to a specific subset once real module colors are known
 
@@ -122,7 +122,7 @@ modules %>%
         legend.position = "none",
         strip.text = element_text(face = "bold", color = "black"),
         strip.background = element_rect(fill = "gray", color = "black"))
-ggsave(filename = paste0(results_dir, mois[i], "_kme_bars.png"),
+ggsave(filename = paste0(results_dir, mois[i], "_kme_bars_2pct.png"),
        units = "in", dpi = 600,
        height = 6, width = 2.5)
 
@@ -143,7 +143,7 @@ scores %>%
         axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
         strip.text = element_text(face = "bold", color = "black"),
         strip.background = element_rect(fill = "gray", color = "black"))
-ggsave(filename = paste0(results_dir, mois[i], "_expression_spot.png"),
+ggsave(filename = paste0(results_dir, mois[i], "_expression_spot_2pct.png"),
        units = "in", dpi = 600,
        height = 3, width = 7)
 
@@ -178,7 +178,7 @@ pb %>%
         axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
         strip.text = element_text(face = "bold", color = "black"),
         strip.background = element_rect(fill = "gray", color = "black"))
-ggsave(filename = paste0(results_dir, mois[i], "_expression_pseudobulk.png"),
+ggsave(filename = paste0(results_dir, mois[i], "_expression_pseudobulk_2pct.png"),
        units = "in", dpi = 600,
        height = 3, width = 7)
 }

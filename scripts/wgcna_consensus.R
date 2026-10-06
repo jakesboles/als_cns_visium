@@ -148,7 +148,7 @@ obj <- ScaleData(obj)
 message2("Selecting genes expressed in at least 5% of spots")
 
 pe <- rowMeans(GetAssayData(obj, layer = "data", assay = "Spatial") > 0)
-genes_keep <- names(pe)[pe > 0.05] # change this cutoff as needed
+genes_keep <- names(pe)[pe > 0.02] # change this cutoff as needed
 
 # Set up hdWGCNA -------------------------------------------------------
 # obj is already filtered to just the 4 compartments -- see header note above.
@@ -210,13 +210,13 @@ p_list <- lapply(seq_along(compartments), function(i){
 })
 p <- wrap_plots(p_list, ncol = 2)
 ggsave(p,
-       filename = paste0(results_dir, "soft_power.png"),
+       filename = paste0(results_dir, "soft_power_2pct.png"),
        units = "in", dpi = 600,
        height = 8, width = 8)
 
 power_table <- GetPowerTable(obj)
 write.csv(power_table,
-          file = paste0(results_dir, "soft_powers.csv"),
+          file = paste0(results_dir, "soft_powers_2pct.csv"),
           row.names = F)
 
 # Build consensus TOM and cluster genes into modules -------------------------
@@ -243,7 +243,7 @@ tryCatch({
   setwd("/projects/b1169/boles/als_cns_visium")
 })
 
-png(paste0(results_dir, "dendrogram.png"),
+png(paste0(results_dir, "dendrogram_2pct.png"),
     height = 8, width = 8, units = "in", res = 600)
 PlotDendrogram(obj, main = "Consensus dendrogram")
 dev.off()
@@ -267,13 +267,13 @@ obj <- ModuleConnectivity(obj, group_name = 1, group.by = "dummy")
 
 p <- PlotKMEs(obj, ncol = 4, text_size = 4)
 ggsave(p,
-       filename = paste0(results_dir, "module_connectivity.png"),
+       filename = paste0(results_dir, "module_connectivity_2pct.png"),
        units = "in", dpi = 600,
        height = 12, width = 12)
 
 mods <- obj@misc[["wgcna_consensus"]][["wgcna_modules"]]
 write.csv(mods,
-          file = paste0(results_dir, "modules.csv"),
+          file = paste0(results_dir, "modules_2pct.csv"),
           row.names = F)
 
 # Module expression scores via UCell -----------------------------------------
@@ -298,7 +298,7 @@ scores <- obj@meta.data %>%
   dplyr::select(code, sample, group, tissue, region, ptdp, pga, batch, age, sex, matches("_UCell_kNN$"))
 
 write.csv(scores,
-          file = paste0(results_dir, "module_scores_ucell.csv"),
+          file = paste0(results_dir, "module_scores_ucell_2pct.csv"),
           row.names = T)
 
 # Harmonized module eigengenes -----------------------------------------------
@@ -307,9 +307,9 @@ message2("Saving module eigengenes")
 
 hMEs <- GetMEs(obj, harmonized = T)
 write.csv(hMEs,
-          file = paste0(results_dir, "module_eigengenes.csv"))
+          file = paste0(results_dir, "module_eigengenes_2pct.csv"))
 
-png(paste0(results_dir, "module_eigengene_correlogram.png"),
+png(paste0(results_dir, "module_eigengene_correlogram_2pct.png"),
     height = 8, width = 8, units = "in", res = 600)
 ModuleCorrelogram(obj, features = "MEs")
 dev.off()
@@ -324,4 +324,4 @@ message2("Saving hdWGCNA experiment object")
 
 wgcna_experiment <- obj@misc[["wgcna_consensus"]]
 saveRDS(wgcna_experiment,
-        file = paste0(data_dir, "wgcna_experiment.rds"))
+        file = paste0(data_dir, "wgcna_experiment_2pct.rds"))

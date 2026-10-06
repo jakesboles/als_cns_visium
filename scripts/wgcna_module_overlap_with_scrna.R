@@ -2,7 +2,7 @@ library(tidyverse)
 
 setwd("/projects/b1169/boles/als_cns_visium/")
 
-st_modules <- read.csv("results/wgcna_consensus/modules.csv") %>%
+st_modules <- read.csv("results/wgcna_consensus/modules_2pct.csv") %>%
   dplyr::select(c(gene_name, module))
 
 scrna_modules <- read.csv("../als_cns_scrnaseq/results/wgcna_consensus/Microglia/modules.csv") %>%
@@ -99,6 +99,6 @@ p_tab_long %>%
     plot.title = element_text(hjust = 0.5),
     axis.text = element_text(color = "black")
   )
-ggsave(filename = paste0("results/wgcna_cross_modality/spatial_vs_microglia_module_overlap.png"),
+ggsave(filename = paste0("results/wgcna_cross_modality/spatial_vs_microglia_module_overlap_2pct.png"),
        units = "in", dpi = 600,
        height = 5, width = 8)
