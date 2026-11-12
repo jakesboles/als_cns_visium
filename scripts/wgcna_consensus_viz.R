@@ -69,13 +69,16 @@ library(scCustomize)
 library(paletteer)
 library(BPCells)
 library(ggbeeswarm)
+library(ggpubr)
 
 setwd("/projects/b1169/boles/als_cns_visium")
 
 results_dir <- "results/wgcna_consensus/"
 data_dir <- "data/wgcna_consensus/"
 
-scores <- read.csv(paste0(results_dir, "module_scores_ucell_2pct.csv"))
+filter <- "_2pct" # change to _2pct if wanting to use data from the WGCNA using genes expressed in >2% of spots rather than default 5% 
+
+scores <- read.csv(paste0(results_dir, "module_scores_ucell", filter, ".csv"))
 
 scores <- scores %>%
   mutate(group = factor(group,
@@ -96,7 +99,7 @@ pb <- scores %>%
   mutate(across(where(is.numeric), median)) %>%
   distinct(sample, compartment, .keep_all = T)
 
-modules <- read.csv(paste0(results_dir, "modules_2pct.csv"))
+modules <- read.csv(paste0(results_dir, "modules", filter, ".csv"))
 
 mois <- setdiff(unique(modules$color), "grey") # change to a specific subset once real module colors are known
 
@@ -122,7 +125,7 @@ modules %>%
         legend.position = "none",
         strip.text = element_text(face = "bold", color = "black"),
         strip.background = element_rect(fill = "gray", color = "black"))
-ggsave(filename = paste0(results_dir, mois[i], "_kme_bars_2pct.png"),
+ggsave(filename = paste0(results_dir, mois[i], "_kme_bars", filter, ".png"),
        units = "in", dpi = 600,
        height = 6, width = 2.5)
 
@@ -143,7 +146,7 @@ scores %>%
         axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
         strip.text = element_text(face = "bold", color = "black"),
         strip.background = element_rect(fill = "gray", color = "black"))
-ggsave(filename = paste0(results_dir, mois[i], "_expression_spot_2pct.png"),
+ggsave(filename = paste0(results_dir, mois[i], "_expression_spot", filter, ".png"),
        units = "in", dpi = 600,
        height = 3, width = 7)
 
@@ -169,6 +172,13 @@ pb %>%
                width = 0.6) +
   facet_wrap(. ~ compartment,
              nrow = 1) +
+  geom_pwc(method = "tukey_hsd",
+           hide.ns = T,
+           label = "p.signif",
+           # label.size = 5 / .pt,
+           tip.length = 0,
+           vjust = 0.5,
+           step.increase = 0.05) +
   scale_fill_manual(values = c("#b8b0a8", "#0CAA00", "#CC00FF")) +
   labs(y = paste0(str_to_title(mois[i]), " module score")) +
   theme_linedraw(base_size = 12) +
@@ -178,7 +188,7 @@ pb %>%
         axis.text.x = element_text(angle = 30, hjust = 1, vjust = 1),
         strip.text = element_text(face = "bold", color = "black"),
         strip.background = element_rect(fill = "gray", color = "black"))
-ggsave(filename = paste0(results_dir, mois[i], "_expression_pseudobulk_2pct.png"),
+ggsave(filename = paste0(results_dir, mois[i], "_expression_pseudobulk", filter, ".png"),
        units = "in", dpi = 600,
        height = 3, width = 7)
 }
