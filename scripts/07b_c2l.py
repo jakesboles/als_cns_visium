@@ -26,13 +26,31 @@
 #   read the same nonexistent column.
 # - Added the output directory creation this script's save calls need --
 #   same gap as 07a_c2l.py.
+#
+# Reproducibility of the diagnostic plots (mod.plot_history()'s training
+# curve, mod.plot_QC()'s reconstruction-accuracy scatter), per the user:
+# same fix and same reasoning as 07a_c2l.py's header -- see that script
+# for the full explanation (checked directly against scvi-tools 1.1.6
+# source for what mod.save()/.load() actually preserves). Short version:
+# mod.history_["elbo_train"] is saved to CSV right after training in
+# case a reload doesn't restore it, and mod.plot_QC() is reimplemented
+# inline (not called directly) so the (observed, predicted) values
+# behind c2l_training_curve.pdf/reconstruction_plot.pdf are saved as
+# plain data too -- self.samples (needed by plot_QC()) is confirmed NOT
+# restored by mod.load() at all (no trailing underscore, so it's not in
+# save()'s attr_dict), and plot_QC()'s own random use_n_obs subsample
+# isn't seeded, so there'd be no way to recreate the exact same plot
+# later even after rerunning export_posterior().
 
 import os
 import sys
 import scanpy as sc
 import numpy as np
+import pandas as pd
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cell2location
+from scvi import REGISTRY_KEYS
 
 sys.stdout.reconfigure(line_buffering=True)
 
@@ -132,7 +150,10 @@ mod.train(max_epochs=250,
           train_size=1,  # Use all data points in training because we need to estimate cell abundance at all locations
           accelerator='gpu')
 
-# Plot ELBO loss history for all training epochs
+# Plot ELBO loss history for all training epochs -- also saved as plain
+# CSV (see header note above).
+mod.history_["elbo_train"].to_csv(f"{output_folder}/c2l_training_curve.csv")
+
 mod.plot_history(0)
 plt.legend(labels=['full data training'])
 plt.savefig(f"{output_folder}/c2l_training_curve.pdf", format="pdf", bbox_inches="tight")
@@ -168,8 +189,40 @@ for section in adata_vis.obs['code'].unique():
 
 adata_vis.write_h5ad(f"{output_folder}/adata_vis_after.h5ad")
 
-# plot_QC works for c2l model - only outputs one plot
-mod.plot_QC(summary_name="q50")
+# plot_QC works for c2l model - only outputs one plot -- reimplemented
+# inline from PltExportMixin.plot_QC() (not called directly anymore) so
+# the underlying (observed, predicted) values are saved as a CSV
+# alongside the PDF, not just rendered and discarded. use_n_obs=1000
+# matches plot_QC()'s own default (not passed explicitly below since
+# this call never overrode it either). Produces the identical plot --
+# see 07a_c2l.py's header for the full reasoning.
+use_n_obs = 1000
+summary_name = "q50"
+ind_x = np.random.choice(mod.adata_manager.adata.n_obs, np.min((use_n_obs, mod.adata.n_obs)), replace=False)
+expected_nb_param = mod.module.model.compute_expected(
+    mod.samples[f"post_sample_{summary_name}"], mod.adata_manager, ind_x=ind_x
+)
+x_data = mod.adata_manager.get_from_registry(REGISTRY_KEYS.X_KEY)[ind_x, :]
+if hasattr(x_data, "toarray"):
+    x_data = np.asarray(x_data.toarray())
+
+pd.DataFrame({
+    "observed": x_data.flatten(),
+    "predicted_mu": expected_nb_param["mu"].flatten(),
+}).to_csv(f"{output_folder}/reconstruction_plot_data.csv", index=False)
+
+plt.figure(figsize=(5.5, 5.5))
+plt.hist2d(
+    np.log10(x_data.flatten() + 1),
+    np.log10(expected_nb_param["mu"].flatten() + 1),
+    bins=50,
+    norm=mpl.colors.LogNorm(),
+)
+plt.gca().set_aspect("equal", adjustable="box")
+plt.xlabel("Data, log10")
+plt.ylabel("Posterior expected value, log10")
+plt.title("Reconstruction accuracy")
+plt.tight_layout()
 plt.savefig(f"{output_folder}/reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()

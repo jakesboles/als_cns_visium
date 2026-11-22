@@ -61,11 +61,51 @@
 # independently re-verified against scvi-tools 1.1.6's actual source, so
 # keep an eye on it specifically if this step errors deep inside that
 # plotting block.
+#
+# Reproducibility of the diagnostic plots, per the user: these are
+# currently throwaway diagnostics, but some may end up as supplemental
+# figures, and re-running the full GPU training just to redraw a plot
+# would be wasteful. Checked directly against scvi-tools 1.1.6's source
+# what mod.save()/.load() actually preserves (not guessed):
+# - self.history_ (what mod.plot_history() reads, i.e. the ELBO training
+#   loss curve) IS an attribute whose name ends in "_", which is exactly
+#   what save()'s own _get_user_attributes() filter looks for and
+#   load()'s _initialize_model() restores onto the reloaded model via
+#   setattr() -- so in principle it round-trips. But save()'s own
+#   docstring explicitly says "Neither the trainer optimizer state nor
+#   the trainer history are saved", which directly contradicts that. This
+#   session has no way to actually run the save/train/reload cycle to
+#   settle which claim is right for these specific Pyro-based model
+#   classes, so rather than gamble on it, mod.history_["elbo_train"] is
+#   now also written to a plain CSV right after training, while it's
+#   definitely still live in memory -- this guarantees the training curve
+#   is reproducible later regardless of how that ambiguity resolves.
+# - self.samples (export_posterior()'s result, needed by plot_QC() --
+#   it explicitly raises RuntimeError without it) has NO trailing
+#   underscore, so it's definitely NOT swept into save()'s attr_dict --
+#   confirmed, not ambiguous. A freshly mod.load()-ed model's plot_QC()
+#   would fail immediately unless export_posterior() is rerun first (a
+#   GPU posterior-sampling pass -- much cheaper than retraining, but not
+#   free, and the first_reconstruction_plot's use_n_obs=1000 random
+#   subsample isn't seeded, so even a rerun wouldn't reproduce the exact
+#   same plot). So plot_QC()'s few lines are reimplemented inline below
+#   (not called via super() anymore) purely so the actual (observed,
+#   predicted) values it plots can be saved as a CSV alongside the PDF --
+#   the rendered plot is identical either way.
+# - The second reconstruction plot and the training-curve plot already
+#   have their underlying arrays as plain local variables (aver,
+#   inf_aver_plot, mod.history_) -- those just needed a .to_csv() added,
+#   no reimplementation.
+# - filter_genes.pdf needs no new saving at all: it's a pure function of
+#   data/06_c2l_object_prep/{tissue}_ref.h5ad (already saved, untouched
+#   by this script), so rerunning filter_genes() on that file later
+#   reproduces it exactly, with no GPU and no model involved.
 
 import os
 import sys
 import scanpy as sc
 import numpy as np
+import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import cell2location as c2l
@@ -156,19 +196,54 @@ summary_name = "means"
 use_n_obs = 1000
 scale_average_detection = True
 
-# First plot
-super(type(mod), mod).plot_QC(summary_name=summary_name, use_n_obs=use_n_obs)
+# First plot -- reimplemented inline from PltExportMixin.plot_QC()
+# (bayraktarlab/cell2location/cell2location/models/base/_pyro_mixin.py)
+# rather than called via super(), purely so the actual (observed,
+# predicted) values get saved, not just rendered -- see header note
+# above. Produces the identical plot; the only addition is the .csv.
+ind_x = np.random.choice(mod.adata_manager.adata.n_obs, np.min((use_n_obs, mod.adata.n_obs)), replace=False)
+expected_nb_param = mod.module.model.compute_expected(
+    mod.samples[f"post_sample_{summary_name}"], mod.adata_manager, ind_x=ind_x
+)
+x_data = mod.adata_manager.get_from_registry(REGISTRY_KEYS.X_KEY)[ind_x, :]
+if hasattr(x_data, "toarray"):
+    x_data = np.asarray(x_data.toarray())
+
+pd.DataFrame({
+    "observed": x_data.flatten(),
+    "predicted_mu": expected_nb_param["mu"].flatten(),
+}).to_csv(f"{results_folder}/plots/first_reconstruction_plot_data.csv", index=False)
+
+plt.figure(figsize=(5.5, 5.5))
+plt.hist2d(
+    np.log10(x_data.flatten() + 1),
+    np.log10(expected_nb_param["mu"].flatten() + 1),
+    bins=50,
+    norm=mpl.colors.LogNorm(),
+)
+plt.gca().set_aspect("equal", adjustable="box")
+plt.xlabel("Data, log10")
+plt.ylabel("Posterior expected value, log10")
+plt.title("Reconstruction accuracy")
+plt.tight_layout()
 plt.savefig(f"{results_folder}/plots/first_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
 
-# Second plot
+# Second plot -- aver/inf_aver_plot were already plain local variables,
+# just needed a .to_csv() alongside the existing plot (see header note
+# above).
+aver = mod._compute_cluster_averages(key=REGISTRY_KEYS.LABELS_KEY)
+aver = aver[mod.factor_names_]
 inf_aver_plot = mod.samples[f"post_sample_{summary_name}"]["per_cluster_mu_fg"].T
 if scale_average_detection and ("detection_y_c" in list(mod.samples[f"post_sample_{summary_name}"].keys())):
   inf_aver_plot = inf_aver_plot * mod.samples[f"post_sample_{summary_name}"]["detection_y_c"].mean()
-aver = mod._compute_cluster_averages(key=REGISTRY_KEYS.LABELS_KEY)
-aver = aver[mod.factor_names_]
+
+pd.DataFrame({
+    "cluster_mean_expression": aver.values.flatten(),
+    "estimated_expression": inf_aver_plot.flatten(),
+}).to_csv(f"{results_folder}/plots/second_reconstruction_plot_data.csv", index=False)
 
 plt.hist2d(
   np.log10(aver.values.flatten() + 1),
@@ -185,7 +260,11 @@ plt.close()
 plt.cla()
 plt.clf()
 
-# Training curve
+# Training curve -- mod.history_["elbo_train"] saved to CSV alongside
+# the PDF, since this is the one plot whose underlying data might not
+# survive a later mod.load() at all (see header note above).
+mod.history_["elbo_train"].to_csv(f"{results_folder}/plots/training_loss.csv")
+
 mod.plot_history(0)
 plt.savefig(f"{results_folder}/plots/training_loss.pdf", format="pdf", bbox_inches="tight")
 plt.close()
