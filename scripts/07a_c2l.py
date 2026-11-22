@@ -100,9 +100,35 @@
 #   data/06_c2l_object_prep/{tissue}_ref.h5ad (already saved, untouched
 #   by this script), so rerunning filter_genes() on that file later
 #   reproduces it exactly, with no GPU and no model involved.
+#
+# Real cluster failure found and fixed after the first actual production
+# run of this script (everything above this had only ever been verified
+# by reading source, never executed): mod.view_anndata_setup() crashed
+# with "AttributeError: module 'rich' has no attribute 'pretty'". Traced
+# directly into scvi-tools 1.1.6's own source
+# (scvi/data/_manager.py:509, inside view_setup_method_args() ->
+# view_anndata_setup()): that file does `import rich` and
+# `from rich import box`/`from rich.console import Console`, but never
+# `import rich.pretty` anywhere, even though it calls
+# `rich.pretty.pprint(setup_args)` -- it's relying on `rich.pretty`
+# already being registered as an attribute of the top-level `rich`
+# package by some unrelated import earlier in the process, which is true
+# for some rich versions and not others. With envs/cell2location.yml's
+# pinned rich==15.0.0, it isn't true, so the attribute lookup fails.
+# Fixed with the one-line, no-risk workaround below rather than touching
+# the rich pin (which could have other transitive-dependency effects):
+# `import rich.pretty` on its own, run anywhere before
+# view_anndata_setup() is called, is enough -- Python's import system
+# binds a submodule as an attribute of its parent package as a side
+# effect of importing it (see the Python docs on the import system), and
+# that binding persists for the rest of the process regardless of what
+# scvi-tools/rich do internally afterward. 07b_c2l.py calls the identical
+# scvi-tools code path (its own mod.view_anndata_setup() call) and got
+# the same fix for the same reason.
 
 import os
 import sys
+import rich.pretty
 import scanpy as sc
 import numpy as np
 import pandas as pd
