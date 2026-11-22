@@ -50,12 +50,9 @@
 # see 07a_c2l.py's header), so results/07_c2l/<tissue>/ no longer
 # exists as a path at all -- it's results/07_c2l/<tissue>_<label_set>/.
 # This script was only ever asked to split 4 ways by (tissue, region);
-# it needs ONE label set's cell-type abundances to run NMF on, and
-# nothing here decides which. Defaulted to "microglia_subtypes" (the
-# only label set the original draft ever referenced, so this is the
-# smallest behavior change relative to before) -- change the constant
-# below if "discrete" is what should actually feed this step, or if
-# this should become an 8-task array running NMF against both.
+# it needs ONE label set's cell-type abundances to run NMF on. Confirmed
+# with the user: "microglia_subtypes" is the one this should actually
+# run against (not just a placeholder default anymore).
 
 import os
 import sys
@@ -69,8 +66,7 @@ sys.stdout.reconfigure(line_buffering=True)
 os.chdir("/projects/b1169/boles/als_cns_visium")
 
 # Which 07a/07b label-set combo this reads cell-type abundances from --
-# see header note above. Change to "discrete" if that's the one this
-# should actually run against.
+# confirmed with the user, see header note above.
 LABEL_SET = "microglia_subtypes"
 
 # (tissue, region) combos -- "mcx"/"sc" tissue codes and "GM"/"WM" region
