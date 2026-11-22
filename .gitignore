@@ -2,6 +2,7 @@ results/*
 plots/*
 data/*
 envs/*
+!envs/cell2location.yml
 __pycache__/
 logs/*
 figures/*
