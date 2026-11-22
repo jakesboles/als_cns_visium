@@ -41,9 +41,21 @@
 # save()'s attr_dict), and plot_QC()'s own random use_n_obs subsample
 # isn't seeded, so there'd be no way to recreate the exact same plot
 # later even after rerunning export_posterior().
+#
+# Real cluster failure found in 07a_c2l.py's first production run (see
+# that script's header for the full writeup): mod.view_anndata_setup()
+# (called below too) crashes with "AttributeError: module 'rich' has no
+# attribute 'pretty'" under envs/cell2location.yml's pinned rich==15.0.0,
+# because scvi-tools 1.1.6's own scvi/data/_manager.py calls
+# rich.pretty.pprint() without ever importing rich.pretty itself, relying
+# on some other import having already registered it as a side effect --
+# which this rich version doesn't do. Fixed the same way as 07a_c2l.py:
+# an explicit `import rich.pretty` below, which permanently registers
+# that attribute on the `rich` package for the rest of the process.
 
 import os
 import sys
+import rich.pretty
 import scanpy as sc
 import numpy as np
 import pandas as pd
