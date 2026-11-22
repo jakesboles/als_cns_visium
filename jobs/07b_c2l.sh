@@ -1,28 +1,25 @@
 #!/bin/bash
-#SBATCH --account p31535
-#SBATCH --partition gengpu
-#SBATCH --job-name MCX_S2
-#SBATCH --gres=gpu:a100:1
+#SBATCH --account b1042
+#SBATCH --partition genomics-gpu
+#SBATCH --job-name 07b_c2l
+#SBATCH --array=1-2
+#SBATCH --gres gpu:a100:1
 #SBATCH --nodes 1
 #SBATCH --ntasks-per-node 1
 #SBATCH --mem 300GB
 #SBATCH --time 24:00:00
-#SBATCH --output /gpfs/projects/b1169/thomas/als_multitissue/Visium/Cell2Location2/mcx/logs/%x_oe%j.log
+#SBATCH --output /gpfs/projects/b1169/boles/als_cns_visium/logs/%x_%A_%a.log
 #SBATCH --verbose
-#SBATCH --mail-type=ALL
-#SBATCH --mail-user=james.watson1@northwestern.edu
 
-# State date and name
-date
-echo 'Thomas Watson'
+# --array matches TISSUES = ["mcx", "sc"] in scripts/07b_c2l.py, same
+# indexing as jobs/07a_c2l.sh -- see that script's header for the
+# --dependency=aftercorr submission pattern this depends on (this step
+# reads 07a's saved reference model for the same tissue directly).
 
-# Load python
 module purge
 module load python-miniconda3/4.10.3
 module load mamba/23.1.0
 
-# Load environment
-source activate "/projects/b1169/thomas/Cell2LocationEnv/env/Cell2Location100626"
+source activate "/projects/b1169/boles/als_cns_visium/envs/cell2location"
 
-# Run script
-python3 "/gpfs/projects/b1169/thomas/als_multitissue/Visium/Cell2Location2/mcx/mcx_step2.py"
+python3 /projects/b1169/boles/als_cns_visium/scripts/07b_c2l.py
