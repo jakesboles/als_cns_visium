@@ -2,10 +2,16 @@
 # signatures onto the Visium data itself, estimating absolute cell-type
 # abundance at each spot.
 #
-# Runs as a 2-task SLURM array (jobs/07b_c2l.sh), one task per tissue --
-# must run after 07a_c2l.py's array job has finished for the SAME tissue
-# (see jobs/07b_c2l.sh for the --dependency note), since this reads that
-# step's saved reference model directly.
+# Runs as a 4-task SLURM array (jobs/07b_c2l.sh): 2 tissues x 2 label
+# sets, matching 07a_c2l.py's own COMBOS exactly (see that script's
+# header for what the two label sets -- "discrete"/cell_type3 and
+# "microglia_subtypes"/cell_type4 -- actually are). Must run after
+# 07a_c2l.py's array job has finished for the SAME combo (see
+# jobs/07b_c2l.sh for the --dependency note), since this reads that
+# step's saved reference model directly. The Visium query itself
+# (06b_c2l_object_prep.py's {tissue}_query.h5ad) doesn't depend on label
+# set at all -- only the scRNAseq reference side does -- so the same
+# query file is read for both of a tissue's label-set combos.
 #
 # Cleaned up from a colleague's stale draft the same way as 07a_c2l.py
 # (see that script's header for the general approach). Specific fixes
@@ -34,27 +40,38 @@ os.chdir("/projects/b1169/boles/als_cns_visium")
 
 TISSUES = ["mcx", "sc"]
 
+# Must match 07a_c2l.py's LABEL_SETS exactly -- only the human-readable
+# name is used here (for locating 07a's output directory); the real
+# column name doesn't matter on this side since the Visium query object
+# never carries a cell-type label column at all.
+LABEL_SETS = ["discrete", "microglia_subtypes"]
+
+COMBOS = [(tissue, label_set) for tissue in TISSUES for label_set in LABEL_SETS]
+
 task_id_str = os.environ.get("SLURM_ARRAY_TASK_ID")
 if task_id_str is None:
     sys.exit("SLURM_ARRAY_TASK_ID is not set -- this script is meant to run "
               "as a SLURM job array (see jobs/07b_c2l.sh), one task per "
-              "tissue in TISSUES, not as a standalone invocation.")
+              "(tissue, label set) combo in COMBOS, not as a standalone "
+              "invocation.")
 task_id = int(task_id_str)
-if task_id < 1 or task_id > len(TISSUES):
+if task_id < 1 or task_id > len(COMBOS):
     sys.exit(f"SLURM_ARRAY_TASK_ID ({task_id}) is out of range for "
-             f"{len(TISSUES)} tissues -- check the --array range in "
+             f"{len(COMBOS)} combos -- check the --array range in "
              f"jobs/07b_c2l.sh.")
-tissue = TISSUES[task_id - 1]
+tissue, label_set = COMBOS[task_id - 1]
+combo = f"{tissue}_{label_set}"
 
-print(f"INFO: Started! Tissue: {tissue} (task {task_id}/{len(TISSUES)})")
+print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)})")
 
 data_dir = "data/06_c2l_object_prep/"
-ref_folder = f"results/07_c2l/{tissue}"
-output_folder = f"results/07_c2l/{tissue}"
+ref_folder = f"results/07_c2l/{combo}"
+output_folder = f"results/07_c2l/{combo}"
 
 os.makedirs(output_folder, exist_ok=True)
 
-# Load post-regression reference data and Visium data
+# Load post-regression reference data and Visium data -- the query file
+# is tissue-only (not label-set-specific), see header note above.
 adata_ref = sc.read(f"{ref_folder}/adata_objects/ref_after_training.h5ad")
 adata_vis = sc.read(f"{data_dir}{tissue}_query.h5ad")
 

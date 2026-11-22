@@ -2,7 +2,7 @@
 #SBATCH --account b1042
 #SBATCH --partition genomics-gpu
 #SBATCH --job-name 07b_c2l
-#SBATCH --array=1-2
+#SBATCH --array=1-4
 #SBATCH --gres gpu:a100:1
 #SBATCH --nodes 1
 #SBATCH --ntasks-per-node 1
@@ -11,10 +11,11 @@
 #SBATCH --output /gpfs/projects/b1169/boles/als_cns_visium/logs/%x_%A_%a.log
 #SBATCH --verbose
 
-# --array matches TISSUES = ["mcx", "sc"] in scripts/07b_c2l.py, same
-# indexing as jobs/07a_c2l.sh -- see that script's header for the
-# --dependency=aftercorr submission pattern this depends on (this step
-# reads 07a's saved reference model for the same tissue directly).
+# --array matches COMBOS in scripts/07b_c2l.py, built the same way (and
+# in the same order) as 07a_c2l.py's own COMBOS -- see that script's
+# header for the --dependency=aftercorr submission pattern this depends
+# on (this step reads 07a's saved reference model for the same combo
+# directly).
 
 module purge
 module load python-miniconda3/4.10.3

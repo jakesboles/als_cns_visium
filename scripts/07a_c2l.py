@@ -3,19 +3,41 @@
 # average expression signatures, for later use (07b_c2l.py) as the
 # reference cell_state_df in the actual spatial deconvolution model.
 #
-# Runs as a 2-task SLURM array (jobs/07a_c2l.sh), one task per tissue
-# (motor cortex, cervical spinal cord) -- each tissue gets its own
-# reference, trained only against that tissue's own scRNAseq cells
-# (06a_c2l_object_prep.R already split the reference by tissue for this
-# reason). Both tasks are independent and run in parallel.
+# Runs as a 4-task SLURM array (jobs/07a_c2l.sh): 2 tissues (motor
+# cortex, cervical spinal cord) x 2 label sets. Per the user: this
+# project has actually run cell2location against two different scRNAseq
+# annotation columns -- "discrete" (cell_type3, one label per cell, no
+# further splitting) and "microglia_subtypes" (cell_type4, identical to
+# cell_type3 except microglia cells carry finer Microglia0-N subcluster
+# labels instead of one combined "Microglia" label) -- and both need to
+# keep running, not just the microglia_subtypes one. Checked the
+# colleague's original pre-cleanup draft directly for this: it only ever
+# referenced labels_key='cell_type4', with no cell_type3 branch anywhere
+# -- that second label set was real work that had been done outside
+# what got committed to this repo, not something dropped by a previous
+# edit here.
+#
+# No change needed in 06a_c2l_object_prep.R/06b_c2l_object_prep.py for
+# this: als_cns_scrnaseq's 20_subcluster_phenotyping.R (already read in
+# detail for the previous cleanup -- see that script's lines ~258-271)
+# keeps BOTH cell_type3 and cell_type4 as separate columns on the same
+# full_metadata.rds object, so 06's existing per-tissue *_ref.h5ad files
+# already carry both label columns in .obs; only which column gets used
+# as labels_key needed to become a second parametrized axis here.
+#
+# Each (tissue, label set) combo gets its own reference, trained only
+# against that tissue's own scRNAseq cells with that label set as the
+# cell-type key. All 4 tasks are independent and run in parallel.
 #
 # Cleaned up from a colleague's stale draft (absolute paths under a
 # different project's /gpfs/projects/b1169/thomas/... tree; hardcoded to
-# motor cortex only, with no spinal cord equivalent at all):
-# - Parametrized by SLURM_ARRAY_TASK_ID over TISSUES, matching this
-#   project's own established array-job convention (e.g.
+# motor cortex only, with no spinal cord equivalent at all, and only the
+# microglia_subtypes label set, as described above):
+# - Parametrized by SLURM_ARRAY_TASK_ID over TISSUES x LABEL_SETS,
+#   matching this project's own established array-job convention (e.g.
 #   als_cns_scrnaseq's wgcna_consensus_cns.R) rather than introducing a
-#   new commandArgs/params-file convention for just a 2-element list.
+#   new commandArgs/params-file convention for just a 4-element combo
+#   list.
 # - mod.train()'s `use_gpu=True` is gone: scvi-tools 1.1.6 (pinned in
 #   envs/cell2location.yml, checked directly against that exact tagged
 #   source) removed that kwarg from PyroSviTrainMixin.train() entirely in
@@ -59,22 +81,35 @@ os.chdir("/projects/b1169/boles/als_cns_visium")
 
 TISSUES = ["mcx", "sc"]
 
+# Maps a human-readable name (used for output directory naming) to the
+# real scRNAseq metadata column used as labels_key -- see header note
+# above for what each one is.
+LABEL_SETS = {
+    "discrete": "cell_type3",
+    "microglia_subtypes": "cell_type4",
+}
+
+COMBOS = [(tissue, label_set) for tissue in TISSUES for label_set in LABEL_SETS]
+
 task_id_str = os.environ.get("SLURM_ARRAY_TASK_ID")
 if task_id_str is None:
     sys.exit("SLURM_ARRAY_TASK_ID is not set -- this script is meant to run "
               "as a SLURM job array (see jobs/07a_c2l.sh), one task per "
-              "tissue in TISSUES, not as a standalone invocation.")
+              "(tissue, label set) combo in COMBOS, not as a standalone "
+              "invocation.")
 task_id = int(task_id_str)
-if task_id < 1 or task_id > len(TISSUES):
+if task_id < 1 or task_id > len(COMBOS):
     sys.exit(f"SLURM_ARRAY_TASK_ID ({task_id}) is out of range for "
-             f"{len(TISSUES)} tissues -- check the --array range in "
+             f"{len(COMBOS)} combos -- check the --array range in "
              f"jobs/07a_c2l.sh.")
-tissue = TISSUES[task_id - 1]
+tissue, label_set = COMBOS[task_id - 1]
+labels_key = LABEL_SETS[label_set]
+combo = f"{tissue}_{label_set}"
 
-print(f"INFO: Started! Tissue: {tissue} (task {task_id}/{len(TISSUES)})")
+print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)})")
 
 data_dir = "data/06_c2l_object_prep/"
-results_folder = f"results/07_c2l/{tissue}"
+results_folder = f"results/07_c2l/{combo}"
 
 for sub in ["plots", "models", "adata_objects"]:
     os.makedirs(f"{results_folder}/{sub}", exist_ok=True)
@@ -90,7 +125,7 @@ plt.close()
 sc_ref = sc_ref[:, selected].copy()
 
 c2l.models.RegressionModel.setup_anndata(adata=sc_ref,
-                                         labels_key='cell_type4',
+                                         labels_key=labels_key,
                                          batch_key="batch")
 
 mod = RegressionModel(sc_ref)

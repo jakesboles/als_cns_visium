@@ -44,6 +44,18 @@
 # code -- ArchetypalAnalysis is the one actually invoked, per the user)
 # and the draft's unused flax/squidpy/anndata-adjacent imports this
 # script never calls directly.
+#
+# LABEL_SET: 07a/07b now each run per (tissue, label set) combo (two
+# scRNAseq annotation columns, "discrete" and "microglia_subtypes" --
+# see 07a_c2l.py's header), so results/07_c2l/<tissue>/ no longer
+# exists as a path at all -- it's results/07_c2l/<tissue>_<label_set>/.
+# This script was only ever asked to split 4 ways by (tissue, region);
+# it needs ONE label set's cell-type abundances to run NMF on, and
+# nothing here decides which. Defaulted to "microglia_subtypes" (the
+# only label set the original draft ever referenced, so this is the
+# smallest behavior change relative to before) -- change the constant
+# below if "discrete" is what should actually feed this step, or if
+# this should become an 8-task array running NMF against both.
 
 import os
 import sys
@@ -55,6 +67,11 @@ from cell2location import run_colocation
 sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/projects/b1169/boles/als_cns_visium")
+
+# Which 07a/07b label-set combo this reads cell-type abundances from --
+# see header note above. Change to "discrete" if that's the one this
+# should actually run against.
+LABEL_SET = "microglia_subtypes"
 
 # (tissue, region) combos -- "mcx"/"sc" tissue codes and "GM"/"WM" region
 # codes match 04_spot_annotation.R's own `region` column values exactly.
@@ -74,9 +91,9 @@ if task_id < 1 or task_id > len(COMBOS):
 tissue, region = COMBOS[task_id - 1]
 combo = f"{tissue}_{region}"
 
-print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)})")
+print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)}, label set: {LABEL_SET})")
 
-results_folder = f"results/07_c2l/{tissue}"
+results_folder = f"results/07_c2l/{tissue}_{LABEL_SET}"
 output_folder = f"results/08_nmf/{combo}/"
 os.makedirs(output_folder, exist_ok=True)
 
