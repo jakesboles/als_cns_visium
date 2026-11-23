@@ -53,6 +53,19 @@
 # it needs ONE label set's cell-type abundances to run NMF on. Confirmed
 # with the user: "microglia_subtypes" is the one this should actually
 # run against (not just a placeholder default anymore).
+#
+# Directory rework, per explicit user request ("I hate the way Thomas
+# saved data... I don't want many nested folders"): 07b_c2l.py's
+# adata_vis_after.h5ad now lives under data/07_c2l/ (combo-prefixed),
+# not results/07_c2l/<combo>/ -- see that script's header. This
+# script's own data objects (AfterNMF_<combo>.h5ad, nmf_res_<combo>.pkl)
+# move the same way, to data/08_nmf/. The results/08_nmf/<combo>/ folder
+# passed below as export_args={'path': ...} keeps whatever internal
+# subfolder structure (stability_plots/, predictive_accuracy/,
+# factor_markers/, etc.) cell2location's own run_colocation() builds --
+# confirmed directly against cell2location/run_colocation.py that this
+# nesting is baked into the library's own export logic, not something
+# this script controls, so it's left alone rather than fought.
 
 import os
 import sys
@@ -89,11 +102,13 @@ combo = f"{tissue}_{region}"
 
 print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)}, label set: {LABEL_SET})")
 
-results_folder = f"results/07_c2l/{tissue}_{LABEL_SET}"
-output_folder = f"results/08_nmf/{combo}/"
-os.makedirs(output_folder, exist_ok=True)
+input_dir = "data/07_c2l/"
+data_dir = "data/08_nmf/"
+results_folder = f"results/08_nmf/{combo}/"
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(results_folder, exist_ok=True)
 
-adata_vis = sc.read_h5ad(f"{results_folder}/adata_vis_after.h5ad")
+adata_vis = sc.read_h5ad(f"{input_dir}{tissue}_{LABEL_SET}_adata_vis_after.h5ad")
 
 adata_vis = adata_vis[adata_vis.obs['region'] == region].copy()
 
@@ -111,12 +126,12 @@ res_dict, adata_vis = run_colocation(
     # run_colocation()'s own sklearn-NMF-shaped defaults) -- see header
     # note above.
     model_kwargs={'random_state': 0},
-    export_args={'path': output_folder}
+    export_args={'path': results_folder}
 )
 
-adata_vis.write_h5ad(f"{output_folder}AfterNMF_{combo}.h5ad")
+adata_vis.write_h5ad(f"{data_dir}{combo}_AfterNMF.h5ad")
 
-with open(f"{output_folder}nmf_res_{combo}.pkl", "wb") as f:
+with open(f"{data_dir}{combo}_nmf_res.pkl", "wb") as f:
     pickle.dump(res_dict, f)
 
 print("INFO: Done")

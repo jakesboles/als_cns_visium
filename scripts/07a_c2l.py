@@ -125,6 +125,34 @@
 # scvi-tools/rich do internally afterward. 07b_c2l.py calls the identical
 # scvi-tools code path (its own mod.view_anndata_setup() call) and got
 # the same fix for the same reason.
+#
+# Directory rework, per explicit user request ("I hate the way Thomas
+# saved data... I don't want many nested folders"): dropped the
+# plots/models/adata_objects three-way subfolder split under
+# results/07_c2l/<combo>/ entirely. Data objects (the scvi model save
+# dir, ref_after_training.h5ad) now live under data/07_c2l/ as flat,
+# combo-prefixed files/dirs -- matching 06a/06b_c2l_object_prep's own
+# {tissue}_ref.h5ad-style naming exactly, the one directory-per-model
+# (mod.save() itself always writes several fixed-name files into
+# whatever directory it's given, so that much nesting is a scvi-tools
+# requirement, not a choice) being the only thing that can't be a bare
+# file. Diagnostic plots/CSVs stay one level deep under
+# results/07_c2l/<combo>/ (flat inside, no plots/ subfolder) --
+# matching deseq2_by_compartment.R's own per-compartment results
+# subfolder convention.
+#
+# Also dropped this script's own inf_aver.csv write: 07b_c2l.py reads
+# this script's saved ref_after_training.h5ad and recomputes an
+# identical inf_aver table from it (same source data, same
+# means_per_cluster_mu_fg computation) before writing its OWN
+# inf_aver.csv into the same shared results folder -- since 07b always
+# runs after 07a (per the --dependency=aftercorr chain), this script's
+# copy was guaranteed to be silently overwritten by an equivalent one
+# moments later. No information is lost by dropping it; it was pure
+# wasted/duplicate work under two different scripts' names pointed at
+# the same file, which was also exactly the kind of fragile
+# cross-script filename coupling the directory rework above was meant
+# to get rid of.
 
 import os
 import sys
@@ -174,18 +202,19 @@ combo = f"{tissue}_{label_set}"
 
 print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)})")
 
-data_dir = "data/06_c2l_object_prep/"
+input_dir = "data/06_c2l_object_prep/"
+data_dir = "data/07_c2l/"
 results_folder = f"results/07_c2l/{combo}"
 
-for sub in ["plots", "models", "adata_objects"]:
-    os.makedirs(f"{results_folder}/{sub}", exist_ok=True)
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(results_folder, exist_ok=True)
 
-sc_ref = sc.read_h5ad(f"{data_dir}{tissue}_ref.h5ad")
+sc_ref = sc.read_h5ad(f"{input_dir}{tissue}_ref.h5ad")
 
 # Permissive gene filtering per Cell2Location's own recommendation.
 selected = filter_genes(sc_ref, cell_count_cutoff=5, cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12)
 
-plt.savefig(f"{results_folder}/plots/filter_genes.pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/filter_genes.pdf", bbox_inches="tight")
 plt.close()
 
 sc_ref = sc_ref[:, selected].copy()
@@ -204,19 +233,10 @@ sc_ref = mod.export_posterior(
     sc_ref, sample_kwargs={'num_samples': 1000, 'batch_size': 5000, 'accelerator': 'gpu'}
 )
 
-if 'means_per_cluster_mu_fg' in sc_ref.varm.keys():
-    inf_aver = sc_ref.varm['means_per_cluster_mu_fg'][[f'means_per_cluster_mu_fg_{i}'
-                                    for i in sc_ref.uns['mod']['factor_names']]].copy()
-else:
-    inf_aver = sc_ref.var[[f'means_per_cluster_mu_fg_{i}'
-                                    for i in sc_ref.uns['mod']['factor_names']]].copy()
-inf_aver.columns = sc_ref.uns['mod']['factor_names']
-
-# find shared genes and subset both anndata and reference signatures
-intersect = np.intersect1d(sc_ref.var_names, inf_aver.index)
-inf_aver = inf_aver.loc[intersect, :].copy()
-
-inf_aver.to_csv(f"{results_folder}/inf_aver.csv")
+# No inf_aver.csv write here anymore -- 07b_c2l.py recomputes an
+# identical table from this script's saved ref_after_training.h5ad and
+# writes its own inf_aver.csv, which always runs after and would have
+# silently clobbered this one. See header note above.
 
 summary_name = "means"
 use_n_obs = 1000
@@ -238,7 +258,7 @@ if hasattr(x_data, "toarray"):
 pd.DataFrame({
     "observed": x_data.flatten(),
     "predicted_mu": expected_nb_param["mu"].flatten(),
-}).to_csv(f"{results_folder}/plots/first_reconstruction_plot_data.csv", index=False)
+}).to_csv(f"{results_folder}/first_reconstruction_plot_data.csv", index=False)
 
 plt.figure(figsize=(5.5, 5.5))
 plt.hist2d(
@@ -252,7 +272,7 @@ plt.xlabel("Data, log10")
 plt.ylabel("Posterior expected value, log10")
 plt.title("Reconstruction accuracy")
 plt.tight_layout()
-plt.savefig(f"{results_folder}/plots/first_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/first_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
@@ -269,7 +289,7 @@ if scale_average_detection and ("detection_y_c" in list(mod.samples[f"post_sampl
 pd.DataFrame({
     "cluster_mean_expression": aver.values.flatten(),
     "estimated_expression": inf_aver_plot.flatten(),
-}).to_csv(f"{results_folder}/plots/second_reconstruction_plot_data.csv", index=False)
+}).to_csv(f"{results_folder}/second_reconstruction_plot_data.csv", index=False)
 
 plt.hist2d(
   np.log10(aver.values.flatten() + 1),
@@ -281,7 +301,7 @@ plt.hist2d(
 plt.xlabel("Mean expression for every gene in every cluster")
 plt.ylabel("Estimated expression for every gene in every cluster")
 
-plt.savefig(f"{results_folder}/plots/second_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/second_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
@@ -289,19 +309,19 @@ plt.clf()
 # Training curve -- mod.history_["elbo_train"] saved to CSV alongside
 # the PDF, since this is the one plot whose underlying data might not
 # survive a later mod.load() at all (see header note above).
-mod.history_["elbo_train"].to_csv(f"{results_folder}/plots/training_loss.csv")
+mod.history_["elbo_train"].to_csv(f"{results_folder}/training_loss.csv")
 
 mod.plot_history(0)
-plt.savefig(f"{results_folder}/plots/training_loss.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/training_loss.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
 
 print("INFO: Saving!")
 
-mod.save(f"{results_folder}/models/model", overwrite=True)
+mod.save(f"{data_dir}{combo}_regression_model", overwrite=True)
 
-adata_file = f"{results_folder}/adata_objects/ref_after_training.h5ad"
+adata_file = f"{data_dir}{combo}_ref_after_training.h5ad"
 sc_ref.write(adata_file)
 
 print("INFO: Done")
