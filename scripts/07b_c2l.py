@@ -42,6 +42,21 @@
 # isn't seeded, so there'd be no way to recreate the exact same plot
 # later even after rerunning export_posterior().
 #
+# Directory rework, per explicit user request ("I hate the way Thomas
+# saved data... I don't want many nested folders"): data objects (both
+# scvi model save dirs, all the adata_vis_*.h5ad files) now live under
+# data/07_c2l/ as flat, combo-prefixed files/dirs, matching
+# 06a/06b_c2l_object_prep's own {tissue}_ref.h5ad-style naming -- see
+# 07a_c2l.py's header for the full reasoning (same rework, same script
+# pair). Diagnostic plots/CSVs stay one level deep under
+# results/07_c2l/<combo>/, flat inside (no more models/adata_objects
+# subfolders). This script's own inf_aver.csv write is now the ONLY one
+# -- 07a_c2l.py used to also write a file by that same name into the
+# same shared folder, recomputing the identical table from the same
+# saved data; since this script always runs after 07a and the content
+# was identical either way, 07a's copy was dropped rather than kept as
+# a guaranteed-stale duplicate (see 07a_c2l.py's header).
+#
 # Real cluster failure found in 07a_c2l.py's first production run (see
 # that script's header for the full writeup): mod.view_anndata_setup()
 # (called below too) crashes with "AttributeError: module 'rich' has no
@@ -94,16 +109,17 @@ combo = f"{tissue}_{label_set}"
 
 print(f"INFO: Started! Combo: {combo} (task {task_id}/{len(COMBOS)})")
 
-data_dir = "data/06_c2l_object_prep/"
-ref_folder = f"results/07_c2l/{combo}"
-output_folder = f"results/07_c2l/{combo}"
+input_dir = "data/06_c2l_object_prep/"
+data_dir = "data/07_c2l/"
+results_folder = f"results/07_c2l/{combo}"
 
-os.makedirs(output_folder, exist_ok=True)
+os.makedirs(data_dir, exist_ok=True)
+os.makedirs(results_folder, exist_ok=True)
 
 # Load post-regression reference data and Visium data -- the query file
 # is tissue-only (not label-set-specific), see header note above.
-adata_ref = sc.read(f"{ref_folder}/adata_objects/ref_after_training.h5ad")
-adata_vis = sc.read(f"{data_dir}{tissue}_query.h5ad")
+adata_ref = sc.read(f"{data_dir}{combo}_ref_after_training.h5ad")
+adata_vis = sc.read(f"{input_dir}{tissue}_query.h5ad")
 
 # Create "SYMBOL" variable for gene names
 adata_vis.var['SYMBOL'] = adata_vis.var.index
@@ -117,7 +133,7 @@ adata_vis.obsm['HB'] = adata_vis[:, adata_vis.var['HB_gene'].values].X.toarray()
 adata_vis = adata_vis[:, ~adata_vis.var['HB_gene'].values]
 
 # Load regression model
-mod = cell2location.models.RegressionModel.load(f"{ref_folder}/models/model/", adata_ref)
+mod = cell2location.models.RegressionModel.load(f"{data_dir}{combo}_regression_model", adata_ref)
 
 # Export estimated expression in each cell type
 if 'means_per_cluster_mu_fg' in adata_ref.varm.keys():
@@ -127,13 +143,13 @@ else:
     inf_aver = adata_ref.var[[f'means_per_cluster_mu_fg_{i}'
                                     for i in adata_ref.uns['mod']['factor_names']]].copy()
 inf_aver.columns = adata_ref.uns['mod']['factor_names']
-inf_aver.to_csv(f"{ref_folder}/inf_aver.csv")
+inf_aver.to_csv(f"{results_folder}/inf_aver.csv")
 
 # Subset to shared genes
 intersect = np.intersect1d(adata_vis.var_names, inf_aver.index)
 adata_vis = adata_vis[:, intersect].copy()
 inf_aver = inf_aver.loc[intersect, :].copy()
-inf_aver.to_csv(f"{ref_folder}/inf_aver_genes_used.csv")
+inf_aver.to_csv(f"{results_folder}/inf_aver_genes_used.csv")
 
 # Prepare Visium data for cell2location model -- batch_key is "code"
 # (per-Visium-section id), not "sample_id" (doesn't exist here). See
@@ -164,11 +180,11 @@ mod.train(max_epochs=250,
 
 # Plot ELBO loss history for all training epochs -- also saved as plain
 # CSV (see header note above).
-mod.history_["elbo_train"].to_csv(f"{output_folder}/c2l_training_curve.csv")
+mod.history_["elbo_train"].to_csv(f"{results_folder}/c2l_training_curve.csv")
 
 mod.plot_history(0)
 plt.legend(labels=['full data training'])
-plt.savefig(f"{output_folder}/c2l_training_curve.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/c2l_training_curve.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
@@ -183,7 +199,7 @@ adata_vis = mod.export_posterior(
 )
 
 # Save model
-mod.save(f"{output_folder}", overwrite=True)
+mod.save(f"{data_dir}{combo}_c2l_model", overwrite=True)
 
 expected_dict = mod.module.model.compute_expected_per_cell_type(
     mod.samples["post_sample_q05"], mod.adata_manager
@@ -196,10 +212,10 @@ for i, n in enumerate(mod.factor_names_):
 # plus the combined object.
 for section in adata_vis.obs['code'].unique():
     adat = adata_vis[adata_vis.obs['code'] == section].copy()
-    adata_file = f"{output_folder}/adata_vis_{section}.h5ad"
+    adata_file = f"{data_dir}{combo}_adata_vis_{section}.h5ad"
     adat.write(adata_file)
 
-adata_vis.write_h5ad(f"{output_folder}/adata_vis_after.h5ad")
+adata_vis.write_h5ad(f"{data_dir}{combo}_adata_vis_after.h5ad")
 
 # plot_QC works for c2l model - only outputs one plot -- reimplemented
 # inline from PltExportMixin.plot_QC() (not called directly anymore) so
@@ -221,7 +237,7 @@ if hasattr(x_data, "toarray"):
 pd.DataFrame({
     "observed": x_data.flatten(),
     "predicted_mu": expected_nb_param["mu"].flatten(),
-}).to_csv(f"{output_folder}/reconstruction_plot_data.csv", index=False)
+}).to_csv(f"{results_folder}/reconstruction_plot_data.csv", index=False)
 
 plt.figure(figsize=(5.5, 5.5))
 plt.hist2d(
@@ -235,7 +251,7 @@ plt.xlabel("Data, log10")
 plt.ylabel("Posterior expected value, log10")
 plt.title("Reconstruction accuracy")
 plt.tight_layout()
-plt.savefig(f"{output_folder}/reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
