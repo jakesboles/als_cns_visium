@@ -67,6 +67,19 @@
 # which this rich version doesn't do. Fixed the same way as 07a_c2l.py:
 # an explicit `import rich.pretty` below, which permanently registers
 # that attribute on the `rich` package for the rest of the process.
+#
+# Switched to CPU training (accelerator='cpu' in both mod.train() and
+# export_posterior()'s sample_kwargs), per explicit user request to
+# avoid this cluster's long GPU queue times -- same change, same
+# reasoning as 07a_c2l.py (confirmed via source that neither
+# scvi-tools' Pyro mixins nor cell2location's own source hardcode a
+# CUDA-only device anywhere; accelerator is a plain passthrough to
+# PyTorch Lightning's Trainer). jobs/07b_c2l.sh's resources were
+# reworked to match -- see that file. This script's Visium query is
+# much smaller than 07a's full scRNAseq reference (spots per section
+# vs. hundreds of thousands of cells), so CPU wall-clock here is
+# plausibly less painful than for 07a, but that's not measured in this
+# session either (no cluster access) -- watch the first real run.
 
 import os
 import sys
@@ -176,7 +189,7 @@ print("INFO: Training!")
 mod.train(max_epochs=250,
           batch_size=10000,  # Set to None to train using all data
           train_size=1,  # Use all data points in training because we need to estimate cell abundance at all locations
-          accelerator='gpu')
+          accelerator='cpu')
 
 # Plot ELBO loss history for all training epochs -- also saved as plain
 # CSV (see header note above).
@@ -195,7 +208,7 @@ print("INFO: Exporting posterior!")
 adata_vis = mod.export_posterior(
     adata_vis, use_quantiles=True,
     add_to_obsm=["q05", "q50", "q95", "q0001"],
-    sample_kwargs={'batch_size': 2500, 'accelerator': 'gpu'}
+    sample_kwargs={'batch_size': 2500, 'accelerator': 'cpu'}
 )
 
 # Save model
