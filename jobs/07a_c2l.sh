@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --account b1042
-#SBATCH --partition genomics-gpu
+#SBATCH --account b1169
+#SBATCH --partition b1169
 #SBATCH --job-name 07a_c2l
 #SBATCH --array=1-4
-#SBATCH --gres gpu:a100:1
 #SBATCH --nodes 1
 #SBATCH --ntasks-per-node 1
+#SBATCH --cpus-per-task 16
 #SBATCH --mem 180GB
-#SBATCH --time 24:00:00
+#SBATCH --time 48:00:00
 #SBATCH --output /gpfs/projects/b1169/boles/als_cns_visium/logs/%x_%A_%a.log
 #SBATCH --verbose
 
@@ -16,6 +16,22 @@
 # scripts/07a_c2l.py: task 1 = mcx/discrete, 2 = mcx/microglia_subtypes,
 # 3 = sc/discrete, 4 = sc/microglia_subtypes. All 4 tasks are independent
 # and run in parallel.
+#
+# No GPU request here anymore (dropped --gres gpu:a100:1, switched off
+# b1042/genomics-gpu) -- scripts/07a_c2l.py was switched to
+# accelerator='cpu' per explicit user request, since this cluster's GPU
+# queue times are very long and this step (unlike 07b's deconvolution
+# model) has no actual hard GPU requirement (confirmed directly against
+# scvi-tools/cell2location source -- see that script's header). Account/
+# partition moved to b1169/b1169, matching every other CPU-only job
+# script in this repo (e.g. 08_nmf.sh, also scvi/cell2location-adjacent
+# CPU work). --cpus-per-task 16 and --time 48:00:00 are both flagged,
+# unmeasured starting points, not confirmed-correct numbers -- CPU
+# training wall-clock for this step (hundreds of thousands of
+# scRNAseq cells) hasn't been benchmarked anywhere in this session (no
+# cluster access); check `seff <jobid>` after the first real run and
+# adjust both, same as this repo's other resource-sizing caveats (e.g.
+# wgcna_consensus.sh).
 #
 # Must run (and finish) before jobs/07b_c2l.sh's matching combo task,
 # since that step loads this one's saved reference model directly.

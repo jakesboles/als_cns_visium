@@ -126,6 +126,25 @@
 # scvi-tools code path (its own mod.view_anndata_setup() call) and got
 # the same fix for the same reason.
 #
+# Switched to CPU training (accelerator='cpu' in both mod.train() and
+# export_posterior()'s sample_kwargs), per explicit user request to
+# avoid this cluster's long GPU queue times. Confirmed directly against
+# scvi-tools 1.1.6 source before making this change, not assumed:
+# PyroSviTrainMixin.train()/export_posterior() just pass `accelerator`
+# straight through to PyTorch Lightning's own Trainer (default "auto"),
+# and neither scvi-tools' Pyro mixins nor cell2location's own source
+# anywhere hardcode a CUDA-only device (no raw .cuda() calls in
+# cell2location/, grepped directly) -- 'cpu' is a fully supported,
+# ordinary option, not a workaround. Real tradeoff, not yet measured in
+# this session (no cluster access): training will take meaningfully
+# longer wall-clock on CPU than on the A100 this ran on before,
+# especially for this step's full scRNAseq reference (hundreds of
+# thousands of cells) -- jobs/07a_c2l.sh's resource request was changed
+# accordingly (see that file), but its time limit is a flagged,
+# unmeasured starting point, not a confirmed bound. 07b_c2l.py's own
+# accelerator='gpu' calls are untouched -- this change was scoped to
+# 07a only, pending a separate decision on 07b.
+#
 # Directory rework, per explicit user request ("I hate the way Thomas
 # saved data... I don't want many nested folders"): dropped the
 # plots/models/adata_objects three-way subfolder split under
@@ -227,10 +246,10 @@ mod = RegressionModel(sc_ref)
 mod.view_anndata_setup()
 
 print("INFO: Training!")
-mod.train(max_epochs=250, batch_size=5000, train_size=1, lr=0.002, accelerator='gpu')
+mod.train(max_epochs=250, batch_size=5000, train_size=1, lr=0.002, accelerator='cpu')
 
 sc_ref = mod.export_posterior(
-    sc_ref, sample_kwargs={'num_samples': 1000, 'batch_size': 5000, 'accelerator': 'gpu'}
+    sc_ref, sample_kwargs={'num_samples': 1000, 'batch_size': 5000, 'accelerator': 'cpu'}
 )
 
 # No inf_aver.csv write here anymore -- 07b_c2l.py recomputes an
