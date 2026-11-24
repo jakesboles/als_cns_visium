@@ -100,7 +100,6 @@
 import os
 import sys
 import rich.pretty
-import torch
 import scanpy as sc
 import numpy as np
 import pandas as pd
@@ -112,13 +111,6 @@ from scvi import REGISTRY_KEYS
 sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/projects/b1169/boles/als_cns_visium")
-
-# Pin PyTorch's intra-op thread pool to the job's actual CPU allocation
-# -- see header note above. Falls back to os.cpu_count() so this still
-# behaves sensibly if run outside SLURM (SLURM_CPUS_PER_TASK unset).
-n_threads = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
-torch.set_num_threads(n_threads)
-print(f"INFO: Using {n_threads} CPU threads for PyTorch")
 
 TISSUES = ["mcx", "sc"]
 

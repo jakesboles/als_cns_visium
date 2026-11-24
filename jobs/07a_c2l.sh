@@ -46,13 +46,4 @@ module load mamba/23.1.0
 
 source activate "/projects/b1169/boles/als_cns_visium/envs/cell2location"
 
-# Make sure PyTorch's BLAS backend (and any other OMP/MKL-threaded
-# library, e.g. numpy) actually uses the --cpus-per-task above, rather
-# than whatever it would otherwise detect on its own -- a well-known
-# PyTorch-on-SLURM gotcha. scripts/07a_c2l.py also pins
-# torch.set_num_threads() to this same value directly, as a
-# belt-and-suspenders measure (see that script's header).
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
-
 python3 /projects/b1169/boles/als_cns_visium/scripts/07a_c2l.py
