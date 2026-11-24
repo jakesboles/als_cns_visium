@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --account b1169
-#SBATCH --partition b1169
+#SBATCH --account b1042
+#SBATCH --partition genomics
 #SBATCH --job-name 07a_c2l
 #SBATCH --array=1-4
 #SBATCH --nodes 1
