@@ -80,10 +80,27 @@
 # vs. hundreds of thousands of cells), so CPU wall-clock here is
 # plausibly less painful than for 07a, but that's not measured in this
 # session either (no cluster access) -- watch the first real run.
+#
+# CPU thread count, per explicit follow-up request ("can more
+# cores/workers be assigned to speed things up") -- same change, same
+# reasoning as 07a_c2l.py: torch.set_num_threads() pinned to
+# jobs/07b_c2l.sh's --cpus-per-task, plus OMP_NUM_THREADS/MKL_NUM_THREADS
+# exported in that job script too, so PyTorch's (and any other BLAS-
+# backed library's) intra-op parallelism actually uses the cores the job
+# requests. Multi-process CPU parallelism (scvi-tools' `device`/
+# `devices` argument spawning several processes under a DDP strategy,
+# rather than more threads within one process) was deliberately NOT
+# turned on here either -- see 07a_c2l.py's header for why: nothing
+# found confirming this is a validated path for Pyro-based models like
+# Cell2location specifically, and a wrong DDP setup could silently
+# distort the ELBO's minibatch-rescaling math rather than crash
+# outright, which isn't a risk worth taking without being able to test
+# it first.
 
 import os
 import sys
 import rich.pretty
+import torch
 import scanpy as sc
 import numpy as np
 import pandas as pd
@@ -95,6 +112,13 @@ from scvi import REGISTRY_KEYS
 sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/projects/b1169/boles/als_cns_visium")
+
+# Pin PyTorch's intra-op thread pool to the job's actual CPU allocation
+# -- see header note above. Falls back to os.cpu_count() so this still
+# behaves sensibly if run outside SLURM (SLURM_CPUS_PER_TASK unset).
+n_threads = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
+torch.set_num_threads(n_threads)
+print(f"INFO: Using {n_threads} CPU threads for PyTorch")
 
 TISSUES = ["mcx", "sc"]
 
