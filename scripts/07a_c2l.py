@@ -145,6 +145,38 @@
 # accelerator='gpu' calls are untouched -- this change was scoped to
 # 07a only, pending a separate decision on 07b.
 #
+# CPU thread count, per explicit follow-up request ("can more
+# cores/workers be assigned to speed things up"): torch.set_num_threads()
+# is pinned below to jobs/07a_c2l.sh's own --cpus-per-task, so PyTorch's
+# intra-op parallelism (the matrix multiplications inside the Pyro
+# model/guide's networks) actually uses all cores the job requests,
+# rather than whatever default thread count PyTorch/its BLAS backend
+# would otherwise guess -- this is a standard, well-known PyTorch-on-
+# SLURM gotcha (a job's --cpus-per-task allocation isn't automatically
+# picked up by every BLAS backend), not something specific to this
+# model. jobs/07a_c2l.sh also now exports OMP_NUM_THREADS/MKL_NUM_THREADS
+# for the same reason, as a belt-and-suspenders measure covering any
+# non-torch library (e.g. numpy, used elsewhere in this script) that
+# reads those env vars directly rather than going through torch's own
+# thread pool.
+#
+# NOT changed: scvi-tools' train()/export_posterior() also expose a
+# `device` argument (passed through to PyTorch Lightning's own
+# `devices=`), which for accelerator='cpu' can in principle spawn
+# MULTIPLE CPU processes under a DDP strategy rather than one
+# multi-threaded process -- a form of parallelism distinct from the
+# thread-count change above. Checked scvi-tools' source for whether
+# this is validated for Pyro-based models specifically (RegressionModel
+# here, not the plain VAE-style models scvi-tools' DDP support is
+# usually described for) and found nothing confirming or ruling it out
+# either way. Given a wrong DDP setup wouldn't necessarily crash -- it
+# could silently distort the ELBO's minibatch-rescaling math (n_obs-
+# dependent KL term scaling) across processes -- this wasn't turned on
+# without being able to verify or test it first (no cluster access this
+# session). Worth testing deliberately (on a cheap single combo, compared
+# against a known-good single-process run) before using it for real, not
+# flipping on directly.
+#
 # Directory rework, per explicit user request ("I hate the way Thomas
 # saved data... I don't want many nested folders"): dropped the
 # plots/models/adata_objects three-way subfolder split under
@@ -176,6 +208,7 @@
 import os
 import sys
 import rich.pretty
+import torch
 import scanpy as sc
 import numpy as np
 import pandas as pd
@@ -191,6 +224,13 @@ sys.stdout.reconfigure(line_buffering=True)
 rcParams['pdf.fonttype'] = 42
 
 os.chdir("/projects/b1169/boles/als_cns_visium")
+
+# Pin PyTorch's intra-op thread pool to the job's actual CPU allocation
+# -- see header note above. Falls back to os.cpu_count() so this still
+# behaves sensibly if run outside SLURM (SLURM_CPUS_PER_TASK unset).
+n_threads = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count() or 1))
+torch.set_num_threads(n_threads)
+print(f"INFO: Using {n_threads} CPU threads for PyTorch")
 
 TISSUES = ["mcx", "sc"]
 
