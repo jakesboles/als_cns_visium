@@ -5,7 +5,7 @@
 #SBATCH --array=1-6
 #SBATCH --nodes 1
 #SBATCH --ntasks-per-node 1
-#SBATCH --mem 350GB
+#SBATCH --mem 500GB
 #SBATCH --time 48:00:00
 #SBATCH --output /gpfs/projects/b1169/boles/als_cns_visium/logs/%x_%A_%a.log
 #SBATCH --verbose
