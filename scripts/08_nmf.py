@@ -170,6 +170,18 @@ os.chdir("/projects/b1169/boles/als_cns_visium")
 # "_ArchetypalAnalysisCompat_..." instead of "ArchetypalAnalysis_...".
 # Correctness (pickling actually working at all) matters far more than
 # that cosmetic naming, so this was not worth re-attempting cleverly.
+#
+# A further real bug found on the same cluster once the pickling fix
+# above let a run actually get through one full n_fact iteration (model
+# creation, 5x training restart, stability eval, posterior sampling,
+# saving, and even plot_cell_type_loadings/the spatial plots once
+# plotnine was installed -- confirming every fix above this one holds):
+# run_colocation() itself crashed with KeyError: 'run_time', confirmed
+# NOT caused by anything in this script -- see the verbose=False
+# comment at the run_colocation() call below for the exact root cause
+# (a genuine typo in run_colocation()'s own source, present for ANY
+# model_name whenever verbose=True) and why verbose=False is the fix.
+
 class _ArchetypalAnalysisCompat(_ArchetypalAnalysis):
     def __init__(self, *args, init=None, nmf_kwd_args=None, alpha=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -241,7 +253,20 @@ else:
 res_dict, adata_vis = run_colocation(
     adata_vis,
     model_name=_ArchetypalAnalysisCompat,
-    verbose=True,
+    # verbose=False, not True -- see header note above. This is a real,
+    # confirmed bug in run_colocation() itself, unrelated to anything in
+    # this script: with verbose=True, right after finishing each n_fact
+    # value's full pipeline (training/stability-eval/posterior-sampling/
+    # saving/plotting) it does `print("### Done ### - time " +
+    # res_dict["run_time"])`, but res_dict (keyed by f"n_fact{n}") never
+    # has a top-level "run_time" key at all -- only the per-n_fact
+    # res_dict_1 dict stored at res_dict[f"n_fact{n}"] does. This raises
+    # KeyError: 'run_time' unconditionally on the FIRST n_fact value
+    # processed, for ANY model_name, crashing before the loop ever
+    # reaches a second n_fact value -- which would have completely
+    # defeated train_args['n_fact']'s whole 5-19 sweep below, regardless
+    # of which model this script uses.
+    verbose=False,
     train_args={
         'n_fact': np.arange(5, 20),  # IMPORTANT: use a wider range of the number of factors (5-30)
         'sample_name_col': 'code',   # per-Visium-section id -- see header note above
