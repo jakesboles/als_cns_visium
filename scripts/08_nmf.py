@@ -36,9 +36,27 @@
 #   doesn't accept any of them (confirmed directly against
 #   cell2location/models/downstream/ArchetypalAnalysis.py's signature) --
 #   this would have raised a TypeError before training ever started.
-#   Fixed by passing model_kwargs={'random_state': 0} explicitly (the one
-#   kwarg ArchetypalAnalysis actually takes that the old defaults also
-#   set).
+#   ORIGINALLY "fixed" by passing model_kwargs={'random_state': 0}
+#   explicitly -- this was NOT actually sufficient, and the real
+#   production run of this script crashed with exactly the predicted
+#   TypeError ("unexpected keyword argument 'init'") despite that fix
+#   being in place. Root cause, confirmed directly against
+#   cell2location/run_colocation.py's actual source: run_colocation()
+#   builds its model_kwargs as `d_model_kwargs = {"init": "random",
+#   "random_state": 0, "nmf_kwd_args": {...}, "alpha": 0.01}` and then
+#   does `for k in model_kwargs.keys(): d_model_kwargs[k] =
+#   model_kwargs[k]` -- a plain dict UPDATE, not a replacement. Passing
+#   model_kwargs={'random_state': 0} only ever overwrote the
+#   random_state entry; init/nmf_kwd_args/alpha were always still
+#   present in the final dict forwarded to Model(**model_kwargs), no
+#   matter what was passed in -- there's no "clear these keys" option in
+#   run_colocation()'s own API. Actually fixed below by subclassing
+#   ArchetypalAnalysis to absorb and discard those three kwargs
+#   specifically, and passing the subclass itself (not the string
+#   'ArchetypalAnalysis') as model_name -- run_colocation() accepts
+#   either (`Model = getattr(models, model_name) if type(model_name) is
+#   str else model_name`), so this bypasses the string lookup entirely
+#   without touching the installed library.
 # - py_pcha (ArchetypalAnalysis.fit()'s lazily-imported dependency,
 #   "please first run `pip install py_pcha`" per its own source) was
 #   missing from envs/cell2location.yml entirely -- added there.
@@ -82,10 +100,27 @@ import pickle
 import numpy as np
 import scanpy as sc
 from cell2location import run_colocation
+from cell2location.models.downstream import ArchetypalAnalysis as _ArchetypalAnalysis
 
 sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/projects/b1169/boles/als_cns_visium")
+
+
+# Absorbs and discards run_colocation()'s own hardcoded sklearn-NMF-shaped
+# model_kwargs defaults (init, nmf_kwd_args, alpha) that
+# ArchetypalAnalysis.__init__() doesn't accept -- see header note above
+# for why model_kwargs={'random_state': 0} alone isn't enough to avoid
+# them. __name__/__qualname__ overridden to "ArchetypalAnalysis" so
+# run_colocation()'s own run_name/path_name construction (which embeds
+# mod.__class__.__name__) doesn't change the exported folder names.
+class _ArchetypalAnalysisCompat(_ArchetypalAnalysis):
+    def __init__(self, *args, init=None, nmf_kwd_args=None, alpha=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+_ArchetypalAnalysisCompat.__name__ = "ArchetypalAnalysis"
+_ArchetypalAnalysisCompat.__qualname__ = "ArchetypalAnalysis"
 
 # Which 07a/07b label-set combo this reads cell-type abundances from --
 # confirmed with the user, see header note above.
@@ -131,7 +166,7 @@ else:
 
 res_dict, adata_vis = run_colocation(
     adata_vis,
-    model_name='ArchetypalAnalysis',
+    model_name=_ArchetypalAnalysisCompat,
     verbose=True,
     train_args={
         'n_fact': np.arange(5, 20),  # IMPORTANT: use a wider range of the number of factors (5-30)
@@ -141,7 +176,9 @@ res_dict, adata_vis = run_colocation(
     },
     # ArchetypalAnalysis only accepts random_state/pcha_kwd_args (not
     # run_colocation()'s own sklearn-NMF-shaped defaults) -- see header
-    # note above.
+    # note above for why model_kwargs alone can't filter those out, and
+    # why _ArchetypalAnalysisCompat (passed as model_name above) is the
+    # actual fix.
     model_kwargs={'random_state': 0},
     export_args={'path': results_folder}
 )
