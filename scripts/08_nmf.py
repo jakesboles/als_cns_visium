@@ -6,8 +6,16 @@
 # matter), since these are expected to have genuinely different cell-type
 # compositions and shouldn't be pooled into one factorization.
 #
-# Runs as a 4-task SLURM array (jobs/08_nmf.sh): mcx GM, mcx WM, sc GM,
-# sc WM. All 4 are independent and run in parallel.
+# Runs as a 6-task SLURM array (jobs/08_nmf.sh): mcx GM, mcx WM, sc GM,
+# sc WM, plus two whole-tissue combos (mcx GM+WM together, sc GM+WM
+# together) added per explicit user request, so the archetypal
+# factorization can also be compared against one run per tissue that
+# doesn't split gray/white matter apart at all. All 6 are independent
+# and run in parallel. A "whole" combo still excludes Meninges/Nerve
+# bundle spots (region %in% c("GM","WM")), matching what the 4 original
+# combos always excluded too -- the only difference from the original 4
+# is whether GM and WM are pooled into one factorization or kept
+# separate, not which spots are eligible in the first place.
 #
 # Cleaned up from a colleague's stale draft (hardcoded to motor
 # cortex/white matter only, with a commented-out alternative
@@ -49,8 +57,9 @@
 # scRNAseq annotation columns, "discrete" and "microglia_subtypes" --
 # see 07a_c2l.py's header), so results/07_c2l/<tissue>/ no longer
 # exists as a path at all -- it's results/07_c2l/<tissue>_<label_set>/.
-# This script was only ever asked to split 4 ways by (tissue, region);
-# it needs ONE label set's cell-type abundances to run NMF on. Confirmed
+# This script was originally only asked to split 4 ways by (tissue,
+# region), now 6 with the whole-tissue combos above -- either way it
+# needs ONE label set's cell-type abundances to run NMF on. Confirmed
 # with the user: "microglia_subtypes" is the one this should actually
 # run against (not just a placeholder default anymore).
 #
@@ -84,7 +93,12 @@ LABEL_SET = "microglia_subtypes"
 
 # (tissue, region) combos -- "mcx"/"sc" tissue codes and "GM"/"WM" region
 # codes match 04_spot_annotation.R's own `region` column values exactly.
-COMBOS = [("mcx", "GM"), ("mcx", "WM"), ("sc", "GM"), ("sc", "WM")]
+# "whole" isn't a real `region` value -- it's this script's own label for
+# "don't split GM/WM apart", handled specially in the filter step below.
+COMBOS = [
+    ("mcx", "GM"), ("mcx", "WM"), ("sc", "GM"), ("sc", "WM"),
+    ("mcx", "whole"), ("sc", "whole"),
+]
 
 task_id_str = os.environ.get("SLURM_ARRAY_TASK_ID")
 if task_id_str is None:
@@ -110,7 +124,10 @@ os.makedirs(results_folder, exist_ok=True)
 
 adata_vis = sc.read_h5ad(f"{input_dir}{tissue}_{LABEL_SET}_adata_vis_after.h5ad")
 
-adata_vis = adata_vis[adata_vis.obs['region'] == region].copy()
+if region == "whole":
+    adata_vis = adata_vis[adata_vis.obs['region'].isin(["GM", "WM"])].copy()
+else:
+    adata_vis = adata_vis[adata_vis.obs['region'] == region].copy()
 
 res_dict, adata_vis = run_colocation(
     adata_vis,
