@@ -13,6 +13,23 @@
 #   download.pytorch.org does, so a fresh `conda env create -f` on this
 #   file without the index line would fail to resolve those three
 #   versions at all. Everything else is unchanged from what you built.
+# - Added plotnine==0.13.6 + mizani==0.11.4 -- a real
+#   `ModuleNotFoundError: No module named 'plotnine'` hit on the actual
+#   cluster, from cell2location.plt.plot_factor_spatial() (called inside
+#   run_colocation()'s spatial-plotting block whenever the Visium query
+#   doesn't carry scanpy's own `.uns['spatial']` image/scalefactors --
+#   confirmed by reading cell2location/plt/plot_factor_spatial.py
+#   directly: `from plotnine import (...)`, with `#!pip install plotnine`
+#   as the file's own first line). That block is wrapped in a try/except
+#   in run_colocation(), so this didn't crash 08_nmf.py outright, but it
+#   did silently skip a real output (the per-archetype spatial density
+#   plots). plotnine==0.13.6 is the newest release still compatible with
+#   this env's pinned python==3.9.23 (checked directly against PyPI's
+#   release metadata -- 0.14.0 onwards all require Python >=3.10);
+#   mizani==0.11.4 is its own exact dependency (`mizani~=0.11.0` per
+#   plotnine 0.13.6's metadata, not already in this list, so pip
+#   wouldn't have pinned a specific version on its own the way every
+#   other package here is pinned).
 name: /projects/b1169/boles/als_cns_visium/envs/cell2location
 channels:
   - defaults
@@ -158,6 +175,7 @@ dependencies:
       - matplotlib-scalebar==0.9.0
       - mdurl==0.1.2
       - ml-collections==0.1.1
+      - mizani==0.11.4
       - ml-dtypes==0.5.4
       - more-itertools==10.8.0
       - msgpack==1.1.2
@@ -184,6 +202,7 @@ dependencies:
       - patsy==1.0.3
       - pillow==11.3.0
       - pims==0.7
+      - plotnine==0.13.6
       - pooch==1.9.0
       - propcache==0.4.1
       - protobuf==6.33.6

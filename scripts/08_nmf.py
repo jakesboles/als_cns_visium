@@ -142,9 +142,34 @@ os.chdir("/projects/b1169/boles/als_cns_visium")
 # model_kwargs defaults (init, nmf_kwd_args, alpha) that
 # ArchetypalAnalysis.__init__() doesn't accept -- see header note above
 # for why model_kwargs={'random_state': 0} alone isn't enough to avoid
-# them. __name__/__qualname__ overridden to "ArchetypalAnalysis" so
-# run_colocation()'s own run_name/path_name construction (which embeds
-# mod.__class__.__name__) doesn't change the exported folder names.
+# them.
+#
+# This class's __name__/__qualname__ were originally overridden to
+# "ArchetypalAnalysis" purely so run_colocation()'s own run_name/
+# path_name construction (which embeds mod.__class__.__name__) wouldn't
+# change the exported folder names. REAL BUG this caused, found on the
+# actual cluster once training/stability-eval/posterior-sampling/
+# plot_cell_type_loadings (the fix above) all succeeded:
+# _pickle.PicklingError: Can't pickle <class '__main__.ArchetypalAnalysis'>:
+# attribute lookup ArchetypalAnalysis on __main__ failed, at
+# run_colocation()'s own `pickle.dump(res_dict_1, ...)` call (res_dict_1
+# includes the trained `mod` object itself). Root cause: Python's pickle
+# module identifies a class by (module, __qualname__) and reconstructs
+# it on load via getattr(sys.modules[module], qualname) -- it does NOT
+# store the class object itself. Overriding __qualname__ to
+# "ArchetypalAnalysis" made pickle look for an attribute literally named
+# "ArchetypalAnalysis" on the __main__ module, which doesn't exist (this
+# class is bound to the name _ArchetypalAnalysisCompat in this script's
+# own namespace) -- so EVERY save of a trained model (including this
+# script's own final nmf_res_<combo>.pkl, not just run_colocation()'s
+# internal model_n_fact*.p files) would have failed to pickle. Fixed by
+# dropping the __name__/__qualname__ override entirely: pickling now
+# correctly resolves __main__._ArchetypalAnalysisCompat, and the only
+# cost is a purely cosmetic one -- exported folder/file names and the
+# model_name field inside saved results now read
+# "_ArchetypalAnalysisCompat_..." instead of "ArchetypalAnalysis_...".
+# Correctness (pickling actually working at all) matters far more than
+# that cosmetic naming, so this was not worth re-attempting cleverly.
 class _ArchetypalAnalysisCompat(_ArchetypalAnalysis):
     def __init__(self, *args, init=None, nmf_kwd_args=None, alpha=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -170,9 +195,6 @@ class _ArchetypalAnalysisCompat(_ArchetypalAnalysis):
             **kwargs
         )
 
-
-_ArchetypalAnalysisCompat.__name__ = "ArchetypalAnalysis"
-_ArchetypalAnalysisCompat.__qualname__ = "ArchetypalAnalysis"
 
 # Which 07a/07b label-set combo this reads cell-type abundances from --
 # confirmed with the user, see header note above.
