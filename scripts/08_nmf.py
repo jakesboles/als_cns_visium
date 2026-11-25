@@ -124,18 +124,66 @@
 # confirmed directly against cell2location/run_colocation.py that this
 # nesting is baked into the library's own export logic, not something
 # this script controls, so it's left alone rather than fought.
+#
+# Real crash found after a full production run completed all 15 n_fact
+# values (5 through 19) -- training/stability-eval/posterior-sampling/
+# saving/plotting all succeeded for every single one, confirming every
+# fix above this holds -- then run_colocation() itself crashed on its
+# very last line, after the whole per-n_fact loop had already finished:
+# `TypeError: Scalar datasets don't support chunk/filter options`,
+# writing key 'SSE' to /uns/mod_coloc_n_fact5/post_sample_means, from
+# `sp_data.write(filename=f"{save_path}sp.h5ad", compression="gzip")`
+# (confirmed the only `compression=` write call anywhere in
+# cell2location/run_colocation.py). Root cause: ArchetypalAnalysis.fit()
+# stores PCHA's "SSE" value as a 0-dimensional (scalar) numpy array in
+# self.samples["post_sample_means"] -- h5py simply does not support
+# chunking/compression on scalar datasets (a well-known h5py limitation,
+# not a cell2location-specific bug), and run_colocation() unconditionally
+# passes compression="gzip" to this one internal write with no way to
+# turn it off from the caller's side. Since this happens on the very
+# last line of the function (after every n_fact value's real work,
+# including each one's own already-pickled model_n_fact<n>.p, is already
+# safely on disk), the only thing actually lost by this crash is
+# run_colocation()'s own redundant combined results/.../anndata/sp.h5ad
+# summary AND, critically, this script's own two final save calls below
+# (data/08_nmf/<combo>_AfterNMF.h5ad, <combo>_nmf_res.pkl) -- since the
+# exception propagates out of run_colocation() before it can `return
+# res_dict, sp_data`, this script's own save calls never run either.
+# Fixed with a narrow monkeypatch on h5py.Group.create_dataset (not on
+# anything inside cell2location or anndata, so it's agnostic to both
+# libraries' own internals) that drops compression/chunking kwargs
+# specifically when the data being written is scalar, and behaves
+# identically otherwise -- this is the standard workaround for this
+# exact, well-known h5py limitation.
 
 import os
 import sys
 import pickle
 import numpy as np
 import scanpy as sc
+import h5py
 from cell2location import run_colocation
 from cell2location.models.downstream import ArchetypalAnalysis as _ArchetypalAnalysis
 
 sys.stdout.reconfigure(line_buffering=True)
 
 os.chdir("/projects/b1169/boles/als_cns_visium")
+
+# See header note above. Scalar (0-d) datasets can't be chunked/
+# compressed in h5py -- strip those kwargs only when they'd actually
+# trigger that error, otherwise defer to h5py's normal behavior.
+_orig_create_dataset = h5py.Group.create_dataset
+
+
+def _create_dataset_allow_scalars(self, name, shape=None, dtype=None, data=None, **kwds):
+    is_scalar = shape == () or (data is not None and np.asarray(data).shape == ())
+    if is_scalar:
+        for key in ("compression", "compression_opts", "chunks", "shuffle", "fletcher32", "scaleoffset"):
+            kwds.pop(key, None)
+    return _orig_create_dataset(self, name, shape=shape, dtype=dtype, data=data, **kwds)
+
+
+h5py.Group.create_dataset = _create_dataset_allow_scalars
 
 
 # Absorbs and discards run_colocation()'s own hardcoded sklearn-NMF-shaped
@@ -279,7 +327,12 @@ res_dict, adata_vis = run_colocation(
     # why _ArchetypalAnalysisCompat (passed as model_name above) is the
     # actual fix.
     model_kwargs={'random_state': 0},
-    export_args={'path': results_folder}
+    # plot_extension: png, not run_colocation()'s own "pdf" default, per
+    # explicit user request -- covers every plot this call produces
+    # (cell_type_factors/location_factors stability plots,
+    # data_vs_posterior_mean, the cell_type_fractions_heatmap, and the
+    # per-section spatial density plots).
+    export_args={'path': results_folder, 'plot_extension': 'png'}
 )
 
 adata_vis.write_h5ad(f"{data_dir}{combo}_AfterNMF.h5ad")
