@@ -60,6 +60,37 @@
 # - py_pcha (ArchetypalAnalysis.fit()'s lazily-imported dependency,
 #   "please first run `pip install py_pcha`" per its own source) was
 #   missing from envs/cell2location.yml entirely -- added there.
+#   REAL FAILURE after the _ArchetypalAnalysisCompat fix above got past
+#   model creation: ModuleNotFoundError: No module named 'py_pcha', on
+#   the actual cluster. This is NOT a gap in envs/cell2location.yml --
+#   py_pcha==0.1.3 is already pinned there (confirmed by reading the
+#   committed file directly) -- it means the conda env actually
+#   installed at /projects/b1169/boles/als_cns_visium/envs/cell2location
+#   predates that pin and was never rebuilt from the updated yml. Fix is
+#   operational, not a code change: with that env active,
+#   `pip install py_pcha==0.1.3` installs just the missing package
+#   without a full env rebuild.
+# - mod.plot_cell_type_loadings(**export_args["plot_cell_type_loadings_
+#   kwargs"]) -- called unconditionally by run_colocation() (NOT wrapped
+#   in a try/except, unlike its mod.plot_posterior_mu_vs_data() and
+#   spatial-plotting calls) right after mod.print_gene_loadings(). This
+#   method is NOT defined on ArchetypalAnalysis or its BaseModel parent
+#   at all -- confirmed by grepping the entire installed cell2location
+#   package -- it only exists on CoLocatedGroupsSklearnNMF, the model
+#   run_colocation() was originally written around. Would have raised
+#   AttributeError: 'ArchetypalAnalysis' object has no attribute
+#   'plot_cell_type_loadings', likely after a long, expensive run
+#   through fit()/evaluate_stability()/sample_posterior() for every
+#   n_fact value in train_args['n_fact'] (5 through 19). Fixed by giving
+#   _ArchetypalAnalysisCompat the same method CoLocatedGroupsSklearnNMF
+#   defines (confirmed by reading its implementation directly) -- it's a
+#   thin wrapper around self.plot_gene_loadings() (inherited from
+#   BaseModel, which ArchetypalAnalysis also inherits) over
+#   self.var_names_read/self.fact_filt/self.cell_type_fractions, all of
+#   which ArchetypalAnalysis instances already have correctly populated
+#   by the time run_colocation() reaches this call (self.cell_type_
+#   fractions specifically is set by mod.sample2df(), called just
+#   before) -- so the exact same implementation works unchanged.
 # - Read path fixed to match where 07b_c2l.py actually saves
 #   adata_vis_after.h5ad (results/07_c2l/<tissue>/, no adata_objects/
 #   subfolder) -- the draft read from a .../adata_objects/
@@ -117,6 +148,27 @@ os.chdir("/projects/b1169/boles/als_cns_visium")
 class _ArchetypalAnalysisCompat(_ArchetypalAnalysis):
     def __init__(self, *args, init=None, nmf_kwd_args=None, alpha=None, **kwargs):
         super().__init__(*args, **kwargs)
+
+    # Copied verbatim from CoLocatedGroupsSklearnNMF.plot_cell_type_loadings()
+    # (cell2location/models/downstream/CoLocatedGroupsSklearnNMF.py) --
+    # ArchetypalAnalysis doesn't define this method itself, but has every
+    # attribute this implementation needs already in the right state by
+    # the time run_colocation() calls it. See header note above.
+    def plot_cell_type_loadings(self, selected_cell_types=None, **kwargs):
+        if selected_cell_types is None:
+            selected_cell_types = self.var_names_read
+
+        self.plot_gene_loadings(
+            sel_var_names=selected_cell_types,
+            var_names=self.var_names_read,
+            fact_filt=self.fact_filt,
+            loadings_attr="cell_type_fractions",
+            gene_fact_name="cell_type_fractions",
+            fun_type="dotplot",
+            cmap="RdPu",
+            figsize=[5 + 0.12 * self.n_fact, 5 + 0.1 * self.n_var],
+            **kwargs
+        )
 
 
 _ArchetypalAnalysisCompat.__name__ = "ArchetypalAnalysis"
