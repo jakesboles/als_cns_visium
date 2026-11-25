@@ -204,6 +204,10 @@
 # the same file, which was also exactly the kind of fragile
 # cross-script filename coupling the directory rework above was meant
 # to get rid of.
+#
+# All four plt.savefig() calls switched from .pdf to .png, per explicit
+# user request (covering this script, 07b_c2l.py, and 08_nmf.py's own
+# export_args={'plot_extension': ...} together).
 
 import os
 import sys
@@ -265,7 +269,7 @@ sc_ref = sc.read_h5ad(f"{input_dir}{tissue}_ref.h5ad")
 # Permissive gene filtering per Cell2Location's own recommendation.
 selected = filter_genes(sc_ref, cell_count_cutoff=5, cell_percentage_cutoff2=0.03, nonz_mean_cutoff=1.12)
 
-plt.savefig(f"{results_folder}/filter_genes.pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/filter_genes.png", bbox_inches="tight")
 plt.close()
 
 sc_ref = sc_ref[:, selected].copy()
@@ -323,7 +327,7 @@ plt.xlabel("Data, log10")
 plt.ylabel("Posterior expected value, log10")
 plt.title("Reconstruction accuracy")
 plt.tight_layout()
-plt.savefig(f"{results_folder}/first_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/first_reconstruction_plot.png", format="png", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
@@ -352,7 +356,7 @@ plt.hist2d(
 plt.xlabel("Mean expression for every gene in every cluster")
 plt.ylabel("Estimated expression for every gene in every cluster")
 
-plt.savefig(f"{results_folder}/second_reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/second_reconstruction_plot.png", format="png", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
@@ -363,7 +367,7 @@ plt.clf()
 mod.history_["elbo_train"].to_csv(f"{results_folder}/training_loss.csv")
 
 mod.plot_history(0)
-plt.savefig(f"{results_folder}/training_loss.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/training_loss.png", format="png", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()

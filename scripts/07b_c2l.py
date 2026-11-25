@@ -96,6 +96,10 @@
 # distort the ELBO's minibatch-rescaling math rather than crash
 # outright, which isn't a risk worth taking without being able to test
 # it first.
+#
+# Both plt.savefig() calls switched from .pdf to .png, per explicit
+# user request (covering this script, 07a_c2l.py, and 08_nmf.py's own
+# export_args={'plot_extension': ...} together).
 
 import os
 import sys
@@ -213,7 +217,7 @@ mod.history_["elbo_train"].to_csv(f"{results_folder}/c2l_training_curve.csv")
 
 mod.plot_history(0)
 plt.legend(labels=['full data training'])
-plt.savefig(f"{results_folder}/c2l_training_curve.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/c2l_training_curve.png", format="png", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
@@ -280,7 +284,7 @@ plt.xlabel("Data, log10")
 plt.ylabel("Posterior expected value, log10")
 plt.title("Reconstruction accuracy")
 plt.tight_layout()
-plt.savefig(f"{results_folder}/reconstruction_plot.pdf", format="pdf", bbox_inches="tight")
+plt.savefig(f"{results_folder}/reconstruction_plot.png", format="png", bbox_inches="tight")
 plt.close()
 plt.cla()
 plt.clf()
